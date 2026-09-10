@@ -215,14 +215,14 @@
   "Gross_CAGR": 0.09834290770931342,
   "Net_CAGR": 0.09330591947796729,
   "Annual_Cost_Drag": 0.005036988231346129,
-  "Total_Cost_Paid_fraction_of_NAV": 0.09910948702146587
+  "Total_Cost_Paid_fraction_of_NAV": 0.09910948702146351
  },
  "rolling_stats": {
   "rolling_1y_return_excess_win_rate": 0.5639546858908342,
   "rolling_3y_cagr_excess_win_rate": 0.6040283817807278,
   "rolling_5y_cagr_excess_win_rate": 0.6144329896907217,
   "rolling_1y_return_median_excess": 0.021300416580672277,
-  "rolling_3y_cagr_median_excess": 0.016528150357562277,
+  "rolling_3y_cagr_median_excess": 0.0165281503575625,
   "rolling_5y_cagr_median_excess": 0.014212789206117349
  },
  "relative_strength_drawdown": {

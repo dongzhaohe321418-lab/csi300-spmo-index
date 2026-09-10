@@ -87,11 +87,11 @@ def draw_candles(ax, ohlc: pd.DataFrame, title: str, ma: Optional[pd.DataFrame] 
     ax.set_ylabel("Index level")
 
 
-def _plain_log_axis(ax) -> None:
+def _plain_log_axis(ax, minor=(1500, 2000, 3000, 5000, 7000), fmt="{:,.0f}") -> None:
     """Log y-axis with plain numbers (1000, 2000, ...) instead of 10^3 notation."""
     ax.set_yscale("log")
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:,.0f}"))
-    ax.yaxis.set_minor_formatter(mticker.FuncFormatter(lambda v, _: f"{v:,.0f}" if v in (1500, 2000, 3000, 5000, 7000) else ""))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt.format(v)))
+    ax.yaxis.set_minor_formatter(mticker.FuncFormatter(lambda v, _: fmt.format(v) if any(abs(v - m) < 1e-9 * max(1.0, abs(m)) for m in minor) else ""))
 
 
 def candlestick_chart(ohlc: pd.DataFrame, title: str, path: Path, ma: Optional[pd.DataFrame] = None, log_scale: bool = False) -> Path:
@@ -131,7 +131,7 @@ def growth_of_100(levels: pd.DataFrame, path: Path, log_scale: bool = False, net
     ax.set_ylabel("Growth of ¥100" + (" (log scale)" if log_scale else ""))
     ax.set_xlabel("Date")
     if log_scale:
-        ax.set_yscale("log")
+        _plain_log_axis(ax, minor=(150, 200, 300, 400, 500, 600, 700, 800, 900, 1500, 2000))
     ax.set_title("Growth of ¥100: CSI 300 vs CSI300 S&P Financial Viability + SPMO")
     ax.legend(loc="upper left")
     ax.xaxis.set_major_locator(mdates.YearLocator(2))
@@ -146,7 +146,12 @@ def relative_strength(rs: pd.DataFrame, path: Path) -> Path:
     ax.axhline(1.0, color="grey", linestyle="--", linewidth=1)
     ax.set_title("Relative Strength: Strategy / CSI 300 (rising = strategy outperforming)")
     ax.set_ylabel("Ratio (start = 1.0)")
-    _plain_log_axis(ax)
+    _plain_log_axis(ax, minor=(), fmt="{:g}")
+    lo, hi = float(ratio.min()), float(ratio.max())
+    ticks = [t for t in (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0) if lo * 0.97 <= t <= hi * 1.03]
+    ax.set_yticks(ticks)
+    ax.set_yticklabels([f"{t:g}" for t in ticks])
+    ax.yaxis.set_minor_formatter(mticker.NullFormatter())
     ax.xaxis.set_major_locator(mdates.YearLocator(2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     return _save(fig, path)
