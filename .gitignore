@@ -1,0 +1,14 @@
+# secrets
+.env
+# raw & intermediate data (re-downloadable / rebuildable with python main.py)
+data/raw/*
+!data/raw/.gitkeep
+data/cache/*
+!data/cache/.gitkeep
+data/processed/prices/
+data/processed/*.parquet
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store

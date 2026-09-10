@@ -1,0 +1,116 @@
+# ---------------------------------------------------------------------------
+# CSI300 S&P Financial Viability + SPMO Momentum Index — configuration
+#
+# The strategy definition is FIXED (see README "最终原则"). Parameters below are
+# either data plumbing or transcriptions of the official S&P rules; they are not
+# meant to be tuned.
+# ---------------------------------------------------------------------------
+project:
+  name: csi300-spmo-index
+  strategy_code: CSI300_SP_FV_SPMO
+  strategy_name: "CSI300 S&P Financial Viability + SPMO Momentum Index"
+  benchmark_code: CSI300
+  benchmark_name: "CSI 300 (000300)"
+  base_level: 1000        # index level at inception (section 9)
+  growth_base: 100        # Growth-of-¥100 series (sections 16/17)
+
+data:
+  provider: akshare       # akshare (free, default) | tushare (optional, needs TUSHARE_TOKEN in .env)
+  start_date: "2004-01-01"
+  end_date: null          # null -> today
+  raw_dir: data/raw
+  processed_dir: data/processed
+  cache_dir: data/cache
+  request_sleep_s: 0.35   # pause between Eastmoney requests
+  csindex_detail_sleep_s: 3.0   # CSIndex announcement-detail endpoint is WAF protected
+  max_retries: 4
+  parent_index_code: "000300"          # CSI 300 price index (K-line benchmark)
+  parent_index_tr_code: "H00300"       # CSI 300 total-return index (supplementary comparison)
+
+universe:
+  # Point-in-time CSI300 membership is reconstructed from the official CSIndex
+  # rebalance announcements (regular + temporary adjustments, 2005-2026) starting
+  # from the current official constituent list and walking backwards.
+  csindex_topic: index_rebalance
+  expected_size: 300
+
+financial_viability:
+  # S&P U.S. Indices Methodology: GAAP net income from continuing operations must be
+  # positive for the most recent quarter AND for the sum of the most recent four
+  # consecutive quarters. Mapping for A-shares (CAS): 持续经营净利润 (CONTINUED_NETPROFIT,
+  # disclosed since the 2018 CAS statement-format revision) with fallback to 净利润
+  # (NETPROFIT, total net profit incl. minority interests).
+  field_priority: [CONTINUED_NETPROFIT, NETPROFIT]
+  require_latest_quarter_positive: true
+  require_trailing_4q_sum_positive: true
+  # If a report has no announcement date on record, assume the statutory deadline
+  # (conservative: never earlier than the true public date).
+  statutory_deadlines: {Q1: "04-30", Q2: "08-31", Q3: "10-31", Q4: "04-30+1"}
+
+momentum:
+  lookback_months: 12
+  skip_months: 1
+  min_traded_days: 150         # S&P: must have traded at least 150 days in the 12-month window
+  volatility: daily_std        # std of daily price returns over the same window (not annualised)
+  price_basis: hfq             # 后复权 prices for momentum/volatility
+
+selection:
+  top_fraction: 0.20
+  rounding: nearest            # fractional target count -> nearest whole number
+  zscore_winsor: 3.0
+  buffer:
+    auto_select_fraction: 0.80 # ranked within top 80% of target -> automatically selected
+    retain_fraction: 1.20      # current constituents within top 120% of target -> retained by rank
+
+weighting:
+  base: fmc_proxy              # float-adjusted market cap proxy = close × listed A-shares (see README "Data")
+  # Company weight cap = lower of cap_absolute and cap_multiple_of_parent_weight × the stock's
+  # market-cap weight in the parent index (S&P factor-index convention "lower of 9% and 20x").
+  # NB: the S&P/BOVESPA Momentum methodology uses 3x instead of 20x; with only ~56 constituents a
+  # 3x multiple is jointly infeasible at every rebalance (sum of caps < 100%), so 20x is used.
+  cap_absolute: 0.09
+  cap_multiple_of_parent_weight: 20.0
+  max_cap_iterations: 200
+
+rebalance:
+  reference_months: [2, 8]     # last trading day of Feb / Aug
+  effective_months: [3, 9]     # after the close of the 3rd Friday of Mar / Sep
+  first_reference_date: "2005-08-31"
+
+costs:
+  # Applied to the NET index at each rebalance on one-way turnover.
+  commission_schedule:           # brokerage, per side
+    - {from: "2005-01-01", rate: 0.0008}
+    - {from: "2013-01-01", rate: 0.0003}
+  slippage_per_side: 0.0010
+  transfer_fee_schedule:         # 过户费 per side (both exchanges from 2015-08-01)
+    - {from: "2005-01-01", rate: 0.00001}
+    - {from: "2022-04-29", rate: 0.00001}
+  stamp_duty_schedule:           # 印花税 (historical regime changes)
+    - {from: "2005-01-24", buy: 0.0010, sell: 0.0010}
+    - {from: "2007-05-30", buy: 0.0030, sell: 0.0030}
+    - {from: "2008-04-24", buy: 0.0010, sell: 0.0010}
+    - {from: "2008-09-19", buy: 0.0000, sell: 0.0010}
+    - {from: "2023-08-28", buy: 0.0000, sell: 0.0005}
+
+analysis:
+  risk_free_rate: 0.0
+  trading_days_per_year: 244    # A-share average
+  market_cycles:
+    - {name: "2005-2007", start: "2005-09-16", end: "2007-12-31"}
+    - {name: "2008",      start: "2008-01-01", end: "2008-12-31"}
+    - {name: "2009-2014", start: "2009-01-01", end: "2014-12-31"}
+    - {name: "2015-2016", start: "2015-01-01", end: "2016-12-31"}
+    - {name: "2017-2018", start: "2017-01-01", end: "2018-12-31"}
+    - {name: "2019-2020", start: "2019-01-01", end: "2020-12-31"}
+    - {name: "2021-2024", start: "2021-01-01", end: "2024-12-31"}
+    - {name: "2025-latest", start: "2025-01-01", end: null}
+  candlestick_default_freq: M    # D / W / M
+  moving_averages: [20, 50, 100, 200]
+
+output:
+  scores_dir: output/scores
+  holdings_dir: output/holdings
+  performance_dir: output/performance
+  charts_dir: output/charts
+  report_dir: output/report

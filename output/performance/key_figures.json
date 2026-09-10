@@ -1,0 +1,236 @@
+{
+ "summary": {
+  "Start": {
+   "CSI300": "2005-09-16T00:00:00.000",
+   "CSI300_SP_FV_SPMO": "2005-09-16T00:00:00.000",
+   "CSI300_SP_FV_SPMO_Net": "2005-09-16T00:00:00.000",
+   "CSI300_TR": "2005-09-16T00:00:00.000",
+   "CSI300_SP_FV_SPMO_TR": "2005-09-16T00:00:00.000"
+  },
+  "End": {
+   "CSI300": "2026-09-09T00:00:00.000",
+   "CSI300_SP_FV_SPMO": "2026-09-09T00:00:00.000",
+   "CSI300_SP_FV_SPMO_Net": "2026-09-09T00:00:00.000",
+   "CSI300_TR": "2026-09-09T00:00:00.000",
+   "CSI300_SP_FV_SPMO_TR": "2026-09-09T00:00:00.000"
+  },
+  "Final_Value_of_100": {
+   "CSI300": 472.6201550388,
+   "CSI300_SP_FV_SPMO": 715.6296497185,
+   "CSI300_SP_FV_SPMO_Net": 649.8403729639,
+   "CSI300_TR": 700.1408867699,
+   "CSI300_SP_FV_SPMO_TR": 1051.8161229954
+  },
+  "Total_Return": {
+   "CSI300": 3.7262015504,
+   "CSI300_SP_FV_SPMO": 6.1562964972,
+   "CSI300_SP_FV_SPMO_Net": 5.4984037296,
+   "CSI300_TR": 6.0014088677,
+   "CSI300_SP_FV_SPMO_TR": 9.51816123
+  },
+  "CAGR": {
+   "CSI300": 0.0768371227,
+   "CSI300_SP_FV_SPMO": 0.0983429077,
+   "CSI300_SP_FV_SPMO_Net": 0.0933059195,
+   "CSI300_TR": 0.0971979905,
+   "CSI300_SP_FV_SPMO_TR": 0.1186902222
+  },
+  "Annualized_Volatility": {
+   "CSI300": 0.2469166207,
+   "CSI300_SP_FV_SPMO": 0.2670612194,
+   "CSI300_SP_FV_SPMO_Net": 0.2669900494,
+   "CSI300_TR": 0.24692696,
+   "CSI300_SP_FV_SPMO_TR": 0.2669176047
+  },
+  "Sharpe_Ratio": {
+   "CSI300": 0.4251992543,
+   "CSI300_SP_FV_SPMO": 0.4869888632,
+   "CSI300_SP_FV_SPMO_Net": 0.4697506968,
+   "CSI300_TR": 0.5014120937,
+   "CSI300_SP_FV_SPMO_TR": 0.5562145736
+  },
+  "Sortino_Ratio": {
+   "CSI300": 0.5923314474,
+   "CSI300_SP_FV_SPMO": 0.680775466,
+   "CSI300_SP_FV_SPMO_Net": 0.6561623006,
+   "CSI300_TR": 0.7005520519,
+   "CSI300_SP_FV_SPMO_TR": 0.7794101492
+  },
+  "Maximum_Drawdown": {
+   "CSI300": -0.7230381814,
+   "CSI300_SP_FV_SPMO": -0.7716301121,
+   "CSI300_SP_FV_SPMO_Net": -0.7739454373,
+   "CSI300_TR": -0.7203562459,
+   "CSI300_SP_FV_SPMO_TR": -0.769933844
+  },
+  "MDD_Peak_Date": {
+   "CSI300": "2007-10-16T00:00:00.000",
+   "CSI300_SP_FV_SPMO": "2007-10-31T00:00:00.000",
+   "CSI300_SP_FV_SPMO_Net": "2007-10-31T00:00:00.000",
+   "CSI300_TR": "2007-10-16T00:00:00.000",
+   "CSI300_SP_FV_SPMO_TR": "2007-10-31T00:00:00.000"
+  },
+  "MDD_Bottom_Date": {
+   "CSI300": "2008-11-04T00:00:00.000",
+   "CSI300_SP_FV_SPMO": "2008-11-04T00:00:00.000",
+   "CSI300_SP_FV_SPMO_Net": "2008-11-04T00:00:00.000",
+   "CSI300_TR": "2008-11-04T00:00:00.000",
+   "CSI300_SP_FV_SPMO_TR": "2008-11-04T00:00:00.000"
+  },
+  "MDD_Recovery_Date": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": "2020-07-13T00:00:00.000",
+   "CSI300_SP_FV_SPMO_Net": "2020-10-13T00:00:00.000",
+   "CSI300_TR": "2015-06-05T00:00:00.000",
+   "CSI300_SP_FV_SPMO_TR": "2020-06-18T00:00:00.000"
+  },
+  "MDD_Days_to_Bottom": {
+   "CSI300": 385,
+   "CSI300_SP_FV_SPMO": 370,
+   "CSI300_SP_FV_SPMO_Net": 370,
+   "CSI300_TR": 385,
+   "CSI300_SP_FV_SPMO_TR": 370
+  },
+  "MDD_Days_to_Recovery": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 4269.0,
+   "CSI300_SP_FV_SPMO_Net": 4361.0,
+   "CSI300_TR": 2404.0,
+   "CSI300_SP_FV_SPMO_TR": 4244.0
+  },
+  "Calmar_Ratio": {
+   "CSI300": 0.1062697997,
+   "CSI300_SP_FV_SPMO": 0.1274482504,
+   "CSI300_SP_FV_SPMO_Net": 0.1205587823,
+   "CSI300_TR": 0.1349304473,
+   "CSI300_SP_FV_SPMO_TR": 0.1541563903
+  },
+  "Best_Year": {
+   "CSI300": "2007 (+161.5%)",
+   "CSI300_SP_FV_SPMO": "2007 (+168.5%)",
+   "CSI300_SP_FV_SPMO_Net": "2007 (+166.5%)",
+   "CSI300_TR": "2007 (+163.3%)",
+   "CSI300_SP_FV_SPMO_TR": "2007 (+170.2%)"
+  },
+  "Worst_Year": {
+   "CSI300": "2008 (-65.9%)",
+   "CSI300_SP_FV_SPMO": "2008 (-69.0%)",
+   "CSI300_SP_FV_SPMO_Net": "2008 (-69.3%)",
+   "CSI300_TR": "2008 (-65.6%)",
+   "CSI300_SP_FV_SPMO_TR": "2008 (-68.7%)"
+  },
+  "Positive_Year_Ratio": {
+   "CSI300": 0.5,
+   "CSI300_SP_FV_SPMO": 0.5909090909,
+   "CSI300_SP_FV_SPMO_Net": 0.5454545455,
+   "CSI300_TR": 0.5454545455,
+   "CSI300_SP_FV_SPMO_TR": 0.5909090909
+  },
+  "Monthly_Win_Rate": {
+   "CSI300": 0.557312253,
+   "CSI300_SP_FV_SPMO": 0.5612648221,
+   "CSI300_SP_FV_SPMO_Net": 0.5612648221,
+   "CSI300_TR": 0.581027668,
+   "CSI300_SP_FV_SPMO_TR": 0.5691699605
+  },
+  "Annualized_Excess_Return": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 0.021505785,
+   "CSI300_SP_FV_SPMO_Net": 0.0164687968,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  },
+  "Tracking_Error": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 0.1063748764,
+   "CSI300_SP_FV_SPMO_Net": 0.1064205378,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  },
+  "Information_Ratio": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 0.2021697767,
+   "CSI300_SP_FV_SPMO_Net": 0.1547520538,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  },
+  "Beta_vs_CSI300": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 0.9921127487,
+   "CSI300_SP_FV_SPMO_Net": 0.9917213539,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  },
+  "Alpha_vs_CSI300": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 0.0262319316,
+   "CSI300_SP_FV_SPMO_Net": 0.0215266602,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  },
+  "Average_Annual_Turnover": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 1.0774426636,
+   "CSI300_SP_FV_SPMO_Net": null,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  },
+  "Average_Rebalance_Turnover": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 0.5513392518,
+   "CSI300_SP_FV_SPMO_Net": null,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  },
+  "Maximum_Rebalance_Turnover": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 0.8277198213,
+   "CSI300_SP_FV_SPMO_Net": null,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  },
+  "Gross_CAGR": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 0.0983429077,
+   "CSI300_SP_FV_SPMO_Net": null,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  },
+  "Net_CAGR": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 0.0933059195,
+   "CSI300_SP_FV_SPMO_Net": null,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  },
+  "Annual_Cost_Drag": {
+   "CSI300": null,
+   "CSI300_SP_FV_SPMO": 0.0050369882,
+   "CSI300_SP_FV_SPMO_Net": null,
+   "CSI300_TR": null,
+   "CSI300_SP_FV_SPMO_TR": null
+  }
+ },
+ "costs": {
+  "Gross_CAGR": 0.09834290770931342,
+  "Net_CAGR": 0.09330591947796729,
+  "Annual_Cost_Drag": 0.005036988231346129,
+  "Total_Cost_Paid_fraction_of_NAV": 0.09910948702146587
+ },
+ "rolling_stats": {
+  "rolling_1y_return_excess_win_rate": 0.5639546858908342,
+  "rolling_3y_cagr_excess_win_rate": 0.6040283817807278,
+  "rolling_5y_cagr_excess_win_rate": 0.6144329896907217,
+  "rolling_1y_return_median_excess": 0.021300416580672277,
+  "rolling_3y_cagr_median_excess": 0.016528150357562277,
+  "rolling_5y_cagr_median_excess": 0.014212789206117349
+ },
+ "relative_strength_drawdown": {
+  "max_drawdown": -0.3316439337451409,
+  "peak_date": "2007-08-09 00:00:00",
+  "bottom_date": "2016-03-04 00:00:00",
+  "recovery_date": "2019-08-16 00:00:00",
+  "days_to_bottom": 3130,
+  "days_to_recovery": 1260
+ }
+}
