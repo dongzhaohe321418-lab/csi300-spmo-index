@@ -79,7 +79,7 @@ def table(df: pd.DataFrame, caption: str, label: str, colspec: str | None = None
     tab = [r"\begin{tabular}{" + colspec + "}", r"\toprule", hdr, r"\midrule", body, r"\bottomrule", r"\end{tabular}"]
     if fit:
         tab = [r"\resizebox{\linewidth}{!}{%"] + tab + ["}"]
-    lines = [r"\begin{table}[htbp]", r"\centering", size, r"\caption{" + caption + r"}\label{" + label + r"}"] + tab
+    lines = [r"\begin{table}[!htbp]", r"\centering", size, r"\caption{" + caption + r"}\label{" + label + r"}"] + tab
     if note:
         lines += [r"\begin{minipage}{0.95\linewidth}\vspace{4pt}\footnotesize " + note + r"\end{minipage}"]
     lines += [r"\end{table}", ""]
@@ -87,7 +87,7 @@ def table(df: pd.DataFrame, caption: str, label: str, colspec: str | None = None
 
 
 def figure(path: str, caption: str, label: str, width: str = r"\textwidth") -> str:
-    return "\n".join([r"\begin{figure}[htbp]", r"\centering", r"\includegraphics[width=" + width + "]{" + path + "}",
+    return "\n".join([r"\begin{figure}[!htbp]", r"\centering", r"\includegraphics[width=" + width + "]{" + path + "}",
                       r"\caption{" + caption + r"}\label{" + label + "}", r"\end{figure}", ""])
 
 
@@ -107,6 +107,8 @@ PREAMBLE = r"""\documentclass[11pt,a4paper]{article}
 \xeCJKsetup{PunctStyle=quanjiao,CJKecglue={\hskip 0.15em plus 0.05em}}
 \usepackage{booktabs,longtable,array,tabularx,multirow}
 \usepackage{graphicx,float}
+\usepackage[section]{placeins}
+\usepackage{flafter}
 \usepackage[font=small,labelfont=bf,labelsep=quad]{caption}
 \usepackage{xcolor}
 \usepackage{enumitem}
@@ -202,8 +204,8 @@ def write_latex(ctx: dict, path: Path) -> Path:  # noqa: C901 - one long, linear
       f"最后，本文在相同数据上复现了 GitHub 项目 HSI300-Momentum-Strategy 的 Top-20 等权季度动量规则：其公布的 2019--2025 年年化 {pct(rep_sum['年化收益'][0], 1)} 在本文数据上复现为 "
       f"{pct(cmp_win['复现：HSMO 规则，行业上限（当前分类）']['CAGR'], 1)}；在 2005--2026 年全样本上该规则年化 {pct(cmp_full[K_NC]['CAGR'], 1)}，"
       f"高于本指数（全收益费后 {pct(cmp_full[K_OURS]['CAGR'], 1)}），但换手约为两倍，且其基于当前行业分类的行业上限在历史上是伪影。")
-    A(r"\medskip\noindent\textbf{关键词：}动量因子；风险调整动量；沪深300；S\&P 500 Momentum；Financial Viability；点位数据；指数编制；动量崩塌")
     A(r"\end{abstract}")
+    A(r"\begin{center}\begin{minipage}{0.86\textwidth}\small\noindent\textbf{关键词：}动量因子；风险调整动量；沪深300；S\&P 500 Momentum；Financial Viability；点位数据；指数编制；动量崩塌\end{minipage}\end{center}")
     A(r"\newpage\tableofcontents\vspace{1em}")
 
     # ------------------------------------------------------------------ 1 introduction
@@ -606,8 +608,9 @@ def write_latex(ctx: dict, path: Path) -> Path:  # noqa: C901 - one long, linear
     ], columns=["文件", "内容"])
     A(table(files, "主要输出文件", "tab:files", colspec=r"@{}p{7.4cm}p{7.6cm}@{}", escape=False, header_escape=False, size=r"\footnotesize"))
     A(r"\end{document}")
+    doc = "\n".join(L).replace("\\subsection{", "\\FloatBarrier\n\\subsection{")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(L), encoding="utf-8")
+    path.write_text(doc, encoding="utf-8")
     return path
 
 

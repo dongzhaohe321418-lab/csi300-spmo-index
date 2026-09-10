@@ -14,6 +14,8 @@
 \xeCJKsetup{PunctStyle=quanjiao,CJKecglue={\hskip 0.15em plus 0.05em}}
 \usepackage{booktabs,longtable,array,tabularx,multirow}
 \usepackage{graphicx,float}
+\usepackage[section]{placeins}
+\usepackage{flafter}
 \usepackage[font=small,labelfont=bf,labelsep=quad]{caption}
 \usepackage{xcolor}
 \usepackage{enumitem}
@@ -46,8 +48,8 @@
 \thispagestyle{empty}
 \begin{abstract}
 本文把 S\&P 500 Momentum Index（SPMO）的编制规则平移到 A 股大盘股，构建并回测了\textbf{沪深300 S\&P Financial Viability + SPMO 动量指数}。指数以逐日点位（point-in-time）的历史沪深300成分股为母池，按 S\&P U.S. Indices 的 Financial Viability 标准（最近一季及最近四季持续经营净利润为正）剔除亏损公司，依 S\&P Momentum 方法计算 12--1 月风险调整动量并转换为 Momentum Score，选取前 20\%（约 51 只）以自由流通市值乘以 Momentum Score 加权并施加公司权重上限，每年 3 月和 9 月调仓。规则完全固定，不做参数优化。母池由中证指数公司 67 份调样公告逐笔回推重建，财务与价格数据均只使用参考日之前已公开的信息，并由程序逐期审计。2005-09-16 至 2026-09-09，指数（价格口径）年化收益 9.83\%，沪深300为 7.68\%，年化超额 2.15\%（费后 1.65\%），Sharpe 由 0.43 升至 0.49，但年化波动（26.71\%）与最大回撤（$-$77.16\%）均高于母指数，月度超额收益的 $t$ 统计量仅 0.97。超额收益高度集中于 2017--2020 年，2007--2016 年相对强度回撤 $-$33.2\%；最大的动量崩塌发生在 2024 年 9--12 月的政策驱动急涨中。归因显示超额几乎全部来自选股（+3.1 个百分点/年），Momentum Score 加权倾斜贡献有限；本文使用的自由流通市值代理相对官方指数每年拖累约 1.1 个百分点，因此报告的策略业绩偏保守。最后，本文在相同数据上复现了 GitHub 项目 HSI300-Momentum-Strategy 的 Top-20 等权季度动量规则：其公布的 2019--2025 年年化 22.2\% 在本文数据上复现为 19.8\%；在 2005--2026 年全样本上该规则年化 13.1\%，高于本指数（全收益费后 11.8\%），但换手约为两倍，且其基于当前行业分类的行业上限在历史上是伪影。
-\medskip\noindent\textbf{关键词：}动量因子；风险调整动量；沪深300；S\&P 500 Momentum；Financial Viability；点位数据；指数编制；动量崩塌
 \end{abstract}
+\begin{center}\begin{minipage}{0.86\textwidth}\small\noindent\textbf{关键词：}动量因子；风险调整动量；沪深300；S\&P 500 Momentum；Financial Viability；点位数据；指数编制；动量崩塌\end{minipage}\end{center}
 \newpage\tableofcontents\vspace{1em}
 \section{引言}
 价格动量——过去 6 至 12 个月表现较好的股票在随后数月继续领先——是被记录最多的股票横截面异象之一 \cite{jegadeesh1993,asness2013,carhart1997}。其代价同样有充分记录：动量组合的收益分布呈显著负偏，在高波动的熊市底部反弹中会出现\emph{动量崩塌} \cite{daniel2016,barroso2015}。S\&P Dow Jones Indices 的 S\&P 500 Momentum Index 是这一因子的指数化实现 \cite{spdji_momentum}：在 S\&P 500 内按 12--1 月风险调整动量打分，选取分数最高的约 20\% 股票，以市值乘以动量分数加权，每年 3 月与 9 月调仓；Invesco S\&P 500 Momentum ETF（代码 SPMO）跟踪该指数。
@@ -61,20 +63,27 @@
 与既有的 A 股动量研究相比，本文的贡献主要在数据工程与工程化验证：(i) 用中证指数公司 2005 年以来的全部沪深300调样公告逐日重建点位成分股，并以\emph{每一步恰好 300 只}和\emph{回推名单与官方 2005 年全名单完全一致}作为硬性校验；(ii) 用交易所除权除息参考价自建复权序列并逐事件校验；(iii) 识别并修正免费财务数据源中 2010 年以前公告日期系统性滞后的问题；(iv) 用同一指数引擎做\emph{选股 vs 加权}的归因，并用权重代理复制母指数来量化代理误差；(v) 在完全相同的数据上复现另一公开动量策略的规则，使两种设计取向的比较不受数据差异干扰。
 下文结构：第 \ref{sec:method} 节给出指数编制方法与同 S\&P 官方方法的差异；第 \ref{sec:data} 节说明数据来源、点位重建与数据质量检验；第 \ref{sec:results} 节报告回测结果；第 \ref{sec:portfolio} 节分析组合特征；第 \ref{sec:attribution} 节做收益来源分解；第 \ref{sec:cost} 节讨论交易成本；第 \ref{sec:hsmo} 节与 HSI300-Momentum-Strategy 比较；第 \ref{sec:conclusion} 节总结并逐条回答研究任务书中的 17 个问题。
 \section{指数构建方法}\label{sec:method}
+\FloatBarrier
 \subsection{母股票池：点位沪深300}
 记 $U(t)$ 为交易日 $t$ 有效的沪深300成分股集合。$U(t)$ 由中证指数公司 67 份沪深300样本调整公告（41 次定期调整、26 次临时调整，生效日 2005-07-01 至 2026-06-15）自当前官方名单逐笔向后回推得到：每撤销一次调整，名单必须恰好回到 300 只；回推至 2005-07-01 的名单必须与中证公布的全名单逐只一致，否则程序报错终止。共 949 只证券在 1225 个成员区间内曾属于沪深300。参考日 $R$ 不属于 $U(R)$ 的股票资格、入选标志和权重一律置零；调仓期间被剔除出沪深300的持仓在生效日按前收盘价剔除，权重按比例分配给其余成分。
+\FloatBarrier
 \subsection{S\&P Financial Viability}
 S\&P U.S. Indices Methodology 要求新纳入公司满足：最近一个已公布季度的 GAAP 持续经营净利润为正，且最近四个季度合计为正 \cite{spdji_us}。本文对每个参考日的全部成分股施加该条件：\begin{equation}\mathrm{NI}^{q}_{i,\,\mathrm{latest}} > 0 \quad\text{且}\quad \sum_{k=0}^{3}\mathrm{NI}^{q}_{i,\,\mathrm{latest}-k} > 0 ,\end{equation}其中 $\mathrm{NI}^{q}$ 为单季持续经营净利润。A 股映射：以利润表\emph{持续经营净利润}（\texttt{CONTINUED\_NETPROFIT}，2018 年准则格式起披露）为主，早期回退到\emph{净利润}（\texttt{NETPROFIT}）；中国季报为年初累计数，单季值取相邻累计数之差（一季度即累计数）。只有首次公告日 $\leq R$ 的报表可用，四个连续已公布季度不足者不合格。公告日期的处理见第 \ref{sec:fin} 节。
+\FloatBarrier
 \subsection{SPMO 风险调整动量、$Z$ 分数与 Momentum Score}
 按 S\&P Momentum Indices Methodology \cite{spdji_momentum}，对参考日 $R$、股票 $i$：\begin{align}\mathrm{Mom}_i &= \frac{P_i(R - 1\mathrm{M})}{P_i(R - 13\mathrm{M})} - 1, &\sigma_i &= \operatorname{StdDev}\bigl\{r_{i,d}: d \in (R-13\mathrm{M},\, R-1\mathrm{M}]\bigr\}, \\\RAM_i &= \mathrm{Mom}_i / \sigma_i, &Z_i &= \operatorname{clip}\!\left(\frac{\RAM_i - \overline{\RAM}}{s_{\RAM}},\, -3,\, 3\right), \\S_i &= \begin{cases} 1 + Z_i, & Z_i > 0 \\ 1/(1 - Z_i), & Z_i \leq 0 \end{cases}\end{align}其中 $P$ 为除权除息复权后的价格收益序列，日期按 A 股交易日历对齐，$r_{i,d}$ 为窗口内日收益率；窗口内交易日不足 150 天的股票不参与。均值与标准差在\emph{沪深300成分且财务合格}的股票间横截面计算。
+\FloatBarrier
 \subsection{选样与缓冲}
 目标数量 $N^\ast = \operatorname{round}(0.2\times$ 合格且动量可计算的成分股数$)$，历史上为 45--55 只而非固定 60 只。按 S\&P 缓冲规则：$S_i$ 排名前 $0.8N^\ast$ 的股票自动入选，现有成分股排名在 $1.2N^\ast$ 以内的保留，其余按排名补足。母指数成员资格优先——被沪深300剔除的股票不能靠缓冲留任。历史上平均每期 5.9 只靠缓冲留任。
+\FloatBarrier
 \subsection{权重}
 原始权重 $\tilde w_i = \FMC_i S_i / \sum_j \FMC_j S_j$，其中 $\FMC$ 为自由流通市值。随后施加公司权重上限\begin{equation} c_i = \min\bigl(9\%,\; 20\, w^{P}_i\bigr),\end{equation}$w^P_i$ 为该股在沪深300中的市值权重（以同一代理对全部 300 只成分计算）；超出上限的权重按比例分配给未触及上限的股票并迭代至无违反。9\% 是 S\&P 500 Momentum 的公司上限；“上限与母指数权重倍数取小”是 S\&P 因子指数的通行写法，但 S\&P 500 Momentum 方法文件未能取得，能确认的 3 倍倍数来自 S\&P/BOVESPA Momentum 方法 \cite{spdji_bovespa}；在只有约 51 只成分股时 3 倍约束每期都无可行解（上限之和小于 100\%），故采用 20 倍。两者均为配置文件中的显式参数，未按收益调整。历史上平均每期 1.9 只股票触及上限。
+\FloatBarrier
 \subsection{调仓时间表与指数计算}
 参考日为每年 2 月和 8 月的最后一个交易日，实施日为 3 月和 9 月第三个星期五收盘后，共 43 个参考日、42 次已实施调仓；最新参考日 2026-08-31 对应的实施日 2026-09-18 尚未到来，其名单单独输出、不进入回测。指数采用份额法：实施日收盘按目标权重确定各成分股份额 $n_i$，两次调仓之间份额不变，$I_t = \sum_i n_i P_{i,t}$ 经除数连接使调仓日前后连续。价格指数使用价格收益复权价，全收益指数使用含股息再投资的复权价；费后指数在每次调仓按当期实际制度扣除佣金、印花税（2008 年 9 月起仅卖出征收，税率随历史调整）、过户费与固定冲击成本。策略的日 OHLC 由成分股当日真实开、高、低、收按固定份额加总得到——开盘与收盘精确，最高与最低因取各成分股当日极值之和而略有高估；成交量无合理定义，留空。停牌股票以最近价格计入。两指数起点均设为 1000，绩效比较以 \textyen 100 为起点重设。
+\FloatBarrier
 \subsection{与 S\&P 500 Momentum 官方方法的差异}
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{本指数与 S\&P 500 Momentum Index 方法的对照}\label{tab:diff}
@@ -96,8 +105,9 @@ $Z$ 截断 / Score & $\pm 3$；$1+Z$ 或 $1/(1-Z)$ & 相同 \\
 \end{table}
 
 \section{数据与数据质量}\label{sec:data}
+\FloatBarrier
 \subsection{数据来源}
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{数据来源。全部数据来自公开免费接口；配置文件支持切换到 Tushare Pro（口令经 \texttt{.env} 提供，不入库）。}\label{tab:data}
@@ -116,20 +126,26 @@ $Z$ 截断 / Score & $\pm 3$；$1+Z$ 或 $1/(1-Z)$ & 相同 \\
 \end{tabular}
 \end{table}
 
+\FloatBarrier
 \subsection{点位成分股重建的验证}
 逆推链每一步恰好 300 只；回推至 2005-07-01 的名单与中证公布的全名单逐只相同；当前名单与官方权重文件的成分集合完全一致。资格审计覆盖 43 个参考日：参考日或实施日非成分股而权重大于零的记录为 0，参考日之后公告的财报被使用的记录为 0，动量数据越界为 0。两处需要人工介入的档案缺口均有文档记录：2008 年 7 月定期调整的主公告在中证档案中被错误归档，改由同日行业指数公告合成（构造方法在 2008 年 12 月调整上验证为完全一致）；2006 年四家公司要约收购退市等纯文字公告手工转录。
+\FloatBarrier
 \subsection{复权价格}
 以交易所除权除息参考价为锚构建乘法复权因子（价格收益口径用于动量与价格指数，全收益口径用于全收益比较），949 只证券全部成功。逐事件与新浪自身的复权因子比对，除一起 2006 年送股加派息事件（新浪因子有误）外全部一致。停牌日无成交，价格沿用、收益为零。
+\FloatBarrier
 \subsection{财务数据与公告日期}\label{sec:fin}
 东方财富对 2010 年以前报告期给出的公告日期实为次年同期报表（作为比较期）的公告日，滞后约 13 个月（随机抽样 120 只股票的中位数滞后 2003--2009 年为 13 个月，2010 年后不足 2 个月）。此类不合理日期（滞后超过 200 天或为负）与缺失日期一律替换为法定披露截止日（一季报 4 月 30 日、中报 8 月 31 日、三季报 10 月 31 日、年报次年 4 月 30 日）。该替代永远不早于真实公告日，因而不会引入前视，但会把部分报表的可用时间推后数周（保守）。每期因“无财报”而不合格的成分股由早年的 39 只降至近年的 0 只——数据源不提供多数已退市公司的报表，这些股票在其成员期内被保守地判为不合格。
+\FloatBarrier
 \subsection{自由流通市值代理及其检验}\label{sec:fmc}
 中证的分级靠档自由流通因子在个股层面没有历史公开数据，本文以“已上市流通 A 股 × 收盘价”作为 $\FMC$ 代理。与 2026-08-31 官方沪深300权重比较：相关系数 0.65，平均绝对偏差 0.16 个百分点，合计主动份额 23\%——代理高估了国有大盘股（其流通 A 股大部分并非真正自由流通）。
 更直接的检验是\textbf{用该代理和本文的指数引擎复制沪深300本身}：全部成分股按代理权重、在与策略相同的日期调仓，得到 \textyen382（年化 6.59\%），而官方沪深300为 \textyen473（年化 7.68\%）；两者日收益相关 0.988，跟踪误差 3.9\%。即权重代理本身相对官方指数有约 1.1 个百分点/年的拖累，方向是高配了长期跑输的大型国企。策略权重继承了同样的倾斜，因此本文报告的策略业绩很可能\emph{低估}了真实自由流通加权版本的表现（第 \ref{sec:attribution} 节的分解与此一致）。基于新浪十大股东数据估算真实自由流通的代码已实现为可选项，因数据源限流未在本次运行中启用。
+\FloatBarrier
 \subsection{已知局限}
 \begin{itemize}\item 自由流通市值为代理值（见上）；\item 2010 年前财报公告日以法定截止日替代（保守）；\item 已退市公司多无财报，被判为不合格；\item 停牌股票以最近价格在调仓日“成交”，实际需待复牌；\item 策略 OHLC 的高低点略有高估；\item 未考虑融券、涨跌停无法成交及超大规模资金的冲击成本。\end{itemize}
 \section{回测结果}\label{sec:results}
+\FloatBarrier
 \subsection{总体绩效}
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{2005-09-16 至 2026-09-09 的总体绩效。TR 为全收益（含股息再投资）口径；“费后”按第 \ref{sec:cost} 节的历史成本制度扣费。}\label{tab:summary}
@@ -156,20 +172,21 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 \end{table}
 
 策略相对沪深300：年化超额 2.15\%（费后 1.65\%），跟踪误差 10.6\%，信息比率 0.20（费后 0.15），$\beta$ 0.99，Jensen $\alpha$ 2.62\%。图 \ref{fig:growth} 给出 \textyen 100 的增长路径，图 \ref{fig:candles} 为两指数的月 K 线。
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/growth_of_100_log.png}
 \caption{\textyen 100 的增长（对数坐标）：沪深300与本指数（费前 / 费后）}\label{fig:growth}
 \end{figure}
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/candlestick_comparison.png}
 \caption{月 K 线比较：本指数（上）与沪深300（下），对数坐标，时间轴对齐}\label{fig:candles}
 \end{figure}
 
+\FloatBarrier
 \subsection{年度收益}
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \footnotesize
 \caption{日历年收益（2005 年自 9 月 16 日起，2026 年至 9 月 9 日止）}\label{tab:annual}
@@ -204,14 +221,15 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 \end{table}
 
 22 个日历年中策略跑赢 12 年。绝对收益最强：2007 年（+168.5\%）、2006 年（+113.0\%）、2009 年（+75.5\%）；最弱：2008 年（$-$69.0\%）、2011 年（$-$34.2\%）、2022 年（$-$27.0\%）。超额最大：2020 年（+33.0\%）、2019 年（+23.4\%）、2017 年（+22.7\%）；超额最差：2009 年（$-$21.2\%）、2014 年（$-$14.4\%）、2015 年（$-$13.1\%）。跑输年份集中在两类环境：由低动量的金融、周期大盘股主导的急涨（2009、2014 年，即动量反转），以及长周期趋势中断后的震荡（2011、2015--2016 年）。
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.9\textwidth]{../charts/annual_returns.png}
 \caption{年度收益：沪深300与策略}\label{fig:annual}
 \end{figure}
 
+\FloatBarrier
 \subsection{月度收益分布与上下行捕获}
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{月度收益分布（253 个月）}\label{tab:monthly}
@@ -231,14 +249,15 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 \end{table}
 
 月度超额收益（策略减沪深300）均值 +0.21 个百分点、标准差 3.39 个百分点，为正的月份占 57\%，$t$ 统计量 0.97——在常规显著性水平下不能拒绝超额收益为零的假设。上行月份捕获比 1.04、下行月份捕获比 0.96；上涨月跑赢概率 55\%，下跌月跑赢概率 59\%；按日收益估计的上行 $\beta$ 0.95、下行 $\beta$ 1.00。策略在涨跌两种月份中的平均超额相近（+0.22 与 +0.19 个百分点），没有明显的方向性择时特征，超额主要来自个股选择（图 \ref{fig:monthly}）。
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.85\textwidth]{../charts/research/rr_monthly_excess.png}
 \caption{月度超额收益分布}\label{fig:monthly}
 \end{figure}
 
+\FloatBarrier
 \subsection{回撤与尾部风险}
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{最大回撤（价格指数）}\label{tab:dd}
@@ -256,7 +275,7 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 \end{tabular}
 \end{table}
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \footnotesize
 \caption{日收益尾部统计（历史 VaR / CVaR）}\label{tab:tails}
@@ -273,28 +292,30 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 \end{table}
 
 两个指数在 2007--2008 年都经历了 70\% 以上的回撤，策略更深（$-$77.16\% 对 $-$72.30\%）；策略价格指数于 2020-07-13 收复 2007 年高点，而沪深300价格指数至今未收复。日收益尾部（VaR、CVaR、极端日数量）策略略重于沪深300，与其更高的波动一致。相对强度（策略 / 沪深300）的最大回撤为 $-$33.2\%，自 2007-08-09 持续至 2016-03-04，于 2019-08-16 才收复——\textbf{连续八年半跑输}是持有这类策略必须接受的代价（图 \ref{fig:dd}、图 \ref{fig:rs}）。
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/drawdown_comparison.png}
 \caption{回撤比较}\label{fig:dd}
 \end{figure}
 
+\FloatBarrier
 \subsection{滚动指标}
 1 年滚动收益跑赢沪深300的比例 56.4\%（中位数超额 +2.1\%）；3 年滚动年化胜率 60.4\%（中位数 +1.7\%）；5 年滚动年化胜率 61.4\%（中位数 +1.4\%）。1 年滚动 $\beta$ 均值 0.98（0.45--1.41），滚动跟踪误差 5.6\%--17.9\%（均值 10.3\%），滚动信息比率中位数 0.26（图 \ref{fig:rolling}）。
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/research/rr_rolling_beta_te.png}
 \caption{滚动 1 年 $\beta$、跟踪误差与超额收益}\label{fig:rolling}
 \end{figure}
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.9\textwidth]{../charts/relative_strength.png}
 \caption{相对强度：策略 / 沪深300}\label{fig:rs}
 \end{figure}
 
+\FloatBarrier
 \subsection{市场周期分析}
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \footnotesize
 \caption{各市场阶段的表现（价格指数、费前）}\label{tab:cycles}
@@ -317,14 +338,15 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 \end{table}
 
 策略跑赢的阶段：2017-2018、2019-2020、2021-2024、2025-latest；跑输的阶段：2005-2007、2008、2009-2014、2015-2016（表 \ref{tab:cycles}、图 \ref{fig:cycle}）。规律与动量文献一致：\textbf{趋势延续、龙头持续领涨的结构性行情}（2017--2018 年的核心资产、2019--2020 年的消费、新能源与医药成长股）对策略最有利；\textbf{由估值修复和政策刺激触发的 V 型反转}（2009 年上半年、2014 年四季度、2024 年 9 月）以及\textbf{趋势反复的震荡市}（2011--2013、2015--2016 年）最不利。2005--2007 年大牛市中策略与指数几乎同步——那一轮领涨的正是权重最大的金融与周期股。
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/research/rr_cycle_cagr.png}
 \caption{各市场阶段的年化收益（标签为策略减沪深300，单位：年化收益率的百分点）}\label{fig:cycle}
 \end{figure}
 
+\FloatBarrier
 \subsection{动量崩塌}
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{最大的五次三个月相对回撤}\label{tab:crash}
@@ -343,9 +365,10 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 
 5 次最大的三个月相对回撤中，3 次发生在\textbf{市场上涨}而非下跌中（2024-12、2009-07、2023-01），符合 \citet{daniel2016} 对动量崩塌的刻画：在高波动的熊市底部反弹时，此前被抛弃的低动量股票反弹最猛，而动量组合恰好低配它们。2024-08-27 至 2024-12-03 的一次相对 $-$22.7\% 是全样本最大的一次：2024 年 9 月 24 日一揽子政策出台后沪深300三个月上涨 19.6\%，而 3 月和 9 月两次调仓所持的高动量股（以周期资源、电子为主）合计 $-$3.1\%。半年一次的调仓频率意味着策略直到 2025 年 3 月才转向。
 \section{组合特征}\label{sec:portfolio}
+\FloatBarrier
 \subsection{Financial Viability 筛选漏斗}
 每个参考日 300 只成分股中平均 37 只（19--76 只）未通过财务资格，通过者 263 只（224--281）。不合格原因见表 \ref{tab:funnel} 与图 \ref{fig:funnel}。动量数据不足（新上市或长期停牌，窗口内交易日少于 150）平均每期再剔除 6.3 只。$Z$ 分数被 $\pm 3$ 截断的股票平均每期 2.6 只；入选门槛 Momentum Score 的中位数为 1.60（即 $Z \approx +0.60$），最高分中位数 4.00。
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{Financial Viability 不合格原因合计（43 个参考日）}\label{tab:funnel}
@@ -365,31 +388,34 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 \end{tabular}
 \end{table}
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/research/rr_fv_funnel.png}
 \caption{各参考日未通过 Financial Viability 的成分股数量及原因}\label{fig:funnel}
 \end{figure}
 
+\FloatBarrier
 \subsection{成分数量、集中度与权重上限}
 成分股数量 45--55 只（均值 51.3）；有效成分数 $1/\sum_i w_i^2$ 为 19--37（均值 25.3），即权重集中度大约相当于一个 25 只的等权组合。前十大权重合计均值 53\%（38\%--65\%）；最大单一权重均值 8.9\%，9\% 上限平均每期约束 1.9 只。策略持有的股票合计占沪深300（代理）市值的 24\%（11\%--42\%）；策略权重落在沪深300市值前 100 名股票上的比例均值 81\%，即策略整体仍是大盘股组合，但相对母指数明显向中等市值倾斜（图 \ref{fig:conc}）。入选股票 Momentum Score 均值 2.50，最低入选分数均值 1.62。
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/research/rr_concentration.png}
 \caption{每次调仓的成分数量、有效成分数与集中度}\label{fig:conc}
 \end{figure}
 
+\FloatBarrier
 \subsection{成分持续性与换手}
 42 次已实施调仓共出现过 547 只不同的成分股。相邻两期成分股的平均保留率 45\%；一段连续成员期的平均长度 1.8 期（中位数 1 期），51\% 的成员期只持续一次调仓——动量组合的“短记忆”特征（图 \ref{fig:pers}）。入选次数最多的股票：贵州茅台（20 次）、五粮液（17 次）、恒瑞医药（16 次）、山东黄金（15 次）、泸州老窖（15 次）、同仁堂（14 次）、招商银行（14 次）、三一重工（14 次）、格力电器（14 次）、福耀玻璃（14 次）。单边换手每次调仓平均 55.1\%（最高 82.8\%），折合每年 107.7\%，与 S\&P 500 Momentum 公布的换手水平相当。
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/research/rr_persistence.png}
 \caption{成分股持续性：入选次数最多的股票（左）与连续成员期长度分布（右）}\label{fig:pers}
 \end{figure}
 
+\FloatBarrier
 \subsection{行业暴露（当前分类）}
 历史行业分类没有免费的点位数据，此处只用中证沪深300一级行业指数的\emph{当前}成分对\emph{最新两期}名单分类（表 \ref{tab:sector}、图 \ref{fig:sector}）。
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{行业暴露：沪深300官方权重与最新两期策略名单}\label{tab:sector}
@@ -413,7 +439,7 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 \end{table}
 
 相对沪深300，最新已实施名单最高配原材料（$+$23.1 个百分点）和信息技术（$+$7.6），最低配工业（$-$7.7）和主要消费（$-$6.4）。SPMO 类规则不做行业中性，行业暴露随动量所在板块大幅摆动，这是其超额收益与跟踪误差的共同来源。
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.9\textwidth]{../charts/research/rr_sector_exposure.png}
 \caption{行业暴露：沪深300与最新两期名单（当前中证一级行业分类）}\label{fig:sector}
@@ -422,7 +448,7 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 最新持仓与待实施名单见附录 \ref{app:holdings}。
 \section{收益来源分解：选股还是加权？}\label{sec:attribution}
 用同一指数引擎、同样的调仓日期与成分股名单，只改变权重方案，可以把策略相对母指数的超额拆开（价格指数、费前；表 \ref{tab:attr}、图 \ref{fig:attr}）。
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{同一批成分股在不同权重方案下的表现}\label{tab:attr}
@@ -445,7 +471,7 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 \item \textbf{等权对市值加权}：$+$0.47 个百分点/年，说明在入选篮子内部，市值越大的股票（多为国有大盘股）动量延续性越差。
 \item \textbf{权重代理偏差}：-1.09 个百分点/年。代理高配国有大盘股，用它复制沪深300会跑输官方指数；策略权重同样受此影响，因此策略相对官方沪深300 $+$2.15 个百分点的年化超额很可能低于真实自由流通加权版本能取得的水平。
 \end{itemize}
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/research/rr_attribution.png}
 \caption{同一批成分股在三种权重方案下的表现，以及用权重代理复制的沪深300（\textyen 100，对数坐标）}\label{fig:attr}
@@ -453,7 +479,7 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 
 \section{交易成本与可实施性}\label{sec:cost}
 费后指数按当期实际制度扣费：佣金随历史下调、印花税按各时期税率（2008 年 9 月起仅卖出征收、2023 年 8 月起减半）、过户费与固定冲击成本。费前年化 9.83\%，费后 9.33\%，年化成本拖累 0.50\%；21 年累计支付的成本相当于期末净值的 9.9\%。各年单边换手见表 \ref{tab:turnover}。成分股全部为沪深300成分、流动性充足，半年一次调仓、单边换手约 55\%，对资金规模不敏感；主要摩擦来自停牌股票（回测按停牌前价格成交）以及涨跌停板日无法足量成交。
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{各日历年的单边换手率}\label{tab:turnover}
@@ -478,7 +504,7 @@ Calmar & 0.11 & 0.13 & 0.12 & 0.13 & 0.15 \\
 
 \section{与 HSI300-Momentum-Strategy 的对比}\label{sec:hsmo}
 GitHub 项目 HSI300-Momentum-Strategy \cite{hsmo} 同样受 SPMO 启发在沪深300内做动量选股，但设计取向不同：它是一个\textbf{集中持股的量化组合}（Top-20 等权、季度调仓、行业上限），而本文是一只\textbf{指数}（约 50 只、市值乘以分数加权、半年调仓、缓冲与上限）。本节先比较规则（表 \ref{tab:hsmo_rules}），再用本文的数据复现其规则，在相同窗口和相同数据上比较结果。
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \footnotesize
 \caption{两个项目的规则差异}\label{tab:hsmo_rules}
@@ -502,9 +528,10 @@ GitHub 项目 HSI300-Momentum-Strategy \cite{hsmo} 同样受 SPMO 启发在沪�
 \end{tabular}
 \end{table}
 
+\FloatBarrier
 \subsection{其公布结果与在本文数据上的复现（2019--2025）}
 我们按其代码逐条复现规则（信号、季末调仓、等权、漂移、15\,bp 成本），只把数据换成本文的点位成分与复权价格。行业上限使用当前中证一级行业分类（其代码同样使用当前分类），历史上已不在沪深300的股票无分类，归入“未知”一类同样受 5 只上限约束。表 \ref{tab:hsmo_win} 与表 \ref{tab:hsmo_ann} 给出结果；其公布值转录自该仓库 README 中的结果图。
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \footnotesize
 \caption{HSMO 仓库公布值与在本文数据上的复现，2019-01-01 至 2025-12-20；夏普比率按其代码以 2\% 无风险利率计算}\label{tab:hsmo_win}
@@ -526,7 +553,7 @@ HSMO 仓库公布值（沪深300） & 53.8\% & 6.6\% & 19.1\% & 0.24 & $-$45.6\%
 \end{tabular}
 \end{table}
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \footnotesize
 \caption{逐年收益：HSMO 公布值、复现值与本指数}\label{tab:hsmo_ann}
@@ -548,8 +575,9 @@ HSMO 仓库公布值（沪深300） & 53.8\% & 6.6\% & 19.1\% & 0.24 & $-$45.6\%
 \end{table}
 
 复现结果与其公布值方向一致、量级接近：沪深300年度收益逐年完全相同（两边都用官方价格指数），策略年化 19.8\% 对公布的 22.2\%，差异主要来自 2020 年（复现 70.8\% 对公布 85.9\%）和 2022 年，源于成分股快照口径（月末快照对逐日）、复权价格与行业分类的差别，而非规则本身。因此可以把两条曲线放在同一数据上比较：2019--2025 年 HSMO 规则 \textyen 100 → \textyen321（无行业上限）/ \textyen335（行业上限），本指数全收益费后 \textyen275，沪深300全收益 \textyen182。HSMO 规则在这 7 年里收益更高、最大回撤更小（$-$41.0\% 对本指数全收益 $-$47.0\%）——差别主要在 2021--2022 年：季度调仓的等权组合在 2021 年 2 月核心资产见顶后一个季度内就转向，而半年调仓的本指数持有 2 月底确定的名单直到 9 月。
+\FloatBarrier
 \subsection{全样本、同数据比较（2005--2026）}
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \footnotesize
 \caption{2005-09-16 至 2026-09-09，两套规则在同一数据上的表现}\label{tab:hsmo_full}
@@ -578,18 +606,19 @@ HSMO 仓库公布值（沪深300） & 53.8\% & 6.6\% & 19.1\% & 0.24 & $-$45.6\%
 \item \textbf{样本期。}该项目公布的 2019--2025 年恰好避开了 2008--2016 年动量策略在 A 股长期跑输的阶段（第 \ref{sec:results} 节），7 年样本的年化超额（15.6\%）不应外推为长期预期。
 \item \textbf{口径。}其策略曲线含股息（后复权）而基准为价格指数，7 年内约多计 2 个百分点/年的股息；本文分别给出价格与全收益口径。
 \end{itemize}
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/research/rr_hsmo_comparison.png}
 \caption{HSMO 规则（在本文数据上复现）与本指数：其 2019--2025 年窗口（左）与 2005--2026 年全样本（右），\textyen 100，对数坐标}\label{fig:hsmo}
 \end{figure}
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{../charts/research/rr_drawdown_comparison.png}
 \caption{回撤比较：沪深300、本指数（价格）、HSMO 规则（全收益、费后）}\label{fig:dd3}
 \end{figure}
 
+\FloatBarrier
 \subsection{评述}
 两种设计代表了动量因子的两种用法。HSI300-Momentum-Strategy 是\textbf{高活跃度的因子组合}：更集中、更快的调仓让它在趋势切换后能更早转向，历史收益更高，但波动、换手、成本和单一行业与个股风险也更高，且其点位数据（月末快照、当前行业分类）与成本假设（15\,bp）在 2005--2008 年的制度环境下偏乐观。本文是\textbf{可指数化的规则}：更宽的成分、市值倾斜的权重、缓冲和上限带来更低的换手和更接近母指数的风险特征（$\beta\approx 1$、跟踪误差约 10\%），代价是对趋势反转反应更慢（2021 年、2024 年 9 月）。两者在同一数据上都长期战胜沪深300，也都在 2008、2011、2015--2016 年经历长时间跑输——\textbf{动量在 A 股大盘股中的有效性是周期性的}，任何以 2019 年以后样本为依据的收益预期都需要打折。
 \section{结论}\label{sec:conclusion}
@@ -773,7 +802,7 @@ HSMO 仓库公布值（沪深300） & 53.8\% & 6.6\% & 19.1\% & 0.24 & $-$45.6\%
 }
 
 \section{参数与输出文件}
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \small
 \caption{策略参数（\texttt{config.yaml}，未做任何收益导向调整）}\label{tab:params}
@@ -794,7 +823,7 @@ $Z$ 分数截断 & $\pm 3$ \\
 \end{tabular}
 \end{table}
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \centering
 \footnotesize
 \caption{主要输出文件}\label{tab:files}
