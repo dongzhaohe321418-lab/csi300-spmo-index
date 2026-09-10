@@ -247,3 +247,23 @@ def test_max_drawdown():
     dd = M.max_drawdown(lev)
     assert dd["max_drawdown"] == pytest.approx(-0.25)
     assert dd["peak_date"] == idx[1] and dd["bottom_date"] == idx[2] and dd["recovery_date"] == idx[4]
+
+
+# --------------------------------------------------------------------------- research report helpers
+def test_hsmo_style_stats_and_docx(tmp_path):
+    from src import research as R
+    from src.docx_export import markdown_to_docx
+
+    idx = pd.bdate_range("2020-01-01", periods=504)
+    lv = pd.Series(100 * (1.0005 ** np.arange(504)), index=idx)
+    st = R.hsmo_style_stats(lv, rf=0.0)
+    assert st["Total_Return"] == pytest.approx(lv.iloc[-1] / 100 - 1)
+    assert st["CAGR"] == pytest.approx((lv.iloc[-1] / 100) ** (252 / 504) - 1)
+    assert st["Max_Drawdown"] == 0.0
+    md = tmp_path / "r.md"
+    md.write_text("# 标题\n\n段落 **加粗** `code`。\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n1. 第一\n2. 第二\n\n- 点\n", encoding="utf-8")
+    out = markdown_to_docx(md, tmp_path / "r.docx")
+    from docx import Document
+    d = Document(out)
+    assert len(d.tables) == 1 and d.tables[0].cell(1, 1).text == "2"
+    assert any(p.text.startswith("1.") for p in d.paragraphs)

@@ -4,6 +4,7 @@
     python main.py                 # data (cached) -> universe -> scores -> backtest -> charts -> report
     python main.py --update        # also refresh time series from the free sources
     python main.py --skip-download # offline: use whatever is in data/raw
+    python main.py --research      # additionally build the full Chinese research report (md + docx)
 
 See README.md for the methodology and the output layout.
 """
@@ -24,8 +25,18 @@ def main() -> int:
     ap.add_argument("--update", action="store_true", help="refresh cached time series before running")
     ap.add_argument("--skip-download", action="store_true", help="do not touch the network; use cached raw data")
     ap.add_argument("--log-level", default="INFO")
+    ap.add_argument("--research", action="store_true", help="also generate output/report/research_report_zh.md/.docx")
     args = ap.parse_args()
     run_all(args.config, refresh=args.update, skip_download=args.skip_download, log_level=args.log_level)
+    if args.research:
+        from src.data import DataHub
+        from src.research_report import build
+        from src.utils import TradingCalendar, load_config
+
+        cfg = load_config(args.config)
+        hub = DataHub(cfg)
+        cal = TradingCalendar(hub.index_daily(cfg["data"]["parent_index_code"])["date"])
+        build(cfg, hub, cal)
     return 0
 
 

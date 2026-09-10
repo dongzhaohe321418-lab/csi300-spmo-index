@@ -236,11 +236,25 @@ parent index. Any violation raises and stops the run.
 * Suspended securities are carried at their last price and (notionally) traded at it on rebalance
   dates.
 
+## Research report (中文完整研究报告)
+
+`python scripts/generate_research_report.py` (after `python main.py`) writes
+`output/report/research_report_zh.md` and `.docx`: methodology, data quality, full performance /
+risk / cycle analysis, portfolio characteristics (Financial-Viability funnel, concentration,
+persistence, sector exposure), a selection-vs-weighting attribution built with the same index
+engine, cost analysis, the answers to the 17 questions, and a like-for-like comparison with the
+GitHub project [HSI300-Momentum-Strategy](https://github.com/dongzhaohe321418-lab/HSI300-Momentum-Strategy)
+(its Top-20 equal-weight quarterly rules re-implemented on this project's point-in-time data, both
+for its own 2019–2025 window and for 2005–2026). The analytics live in `src/research.py`
+(diagnostic only — the strategy itself is untouched), figures in `src/research_charts.py`, text in
+`src/research_text.py`; the supporting tables are written to `output/research/`.
+
 ## Repository layout
 ```
 main.py  config.yaml  requirements.txt  .env.example
 src/    data.py universe.py prices.py financials.py momentum.py selection.py weighting.py
         index_engine.py backtest.py audit.py metrics.py plots.py analysis.py report.py pipeline.py utils.py
-scripts/ download_data.py calculate_scores.py run_backtest.py generate_report.py
-data/   raw/ processed/ cache/        output/ scores/ holdings/ performance/ charts/ report/     tests/
+        research.py research_charts.py research_text.py research_report.py docx_export.py tushare_provider.py
+scripts/ download_data.py calculate_scores.py run_backtest.py generate_report.py generate_research_report.py
+data/   raw/ processed/ cache/        output/ scores/ holdings/ performance/ charts/ research/ report/     tests/
 ```
