@@ -20,15 +20,16 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--log-level", default="INFO")
+    ap.add_argument("--latex", action="store_true", help="also write the arXiv-style LaTeX source and compile it to PDF (tectonic / latexmk)")
     args = ap.parse_args()
     setup_logging(args.log_level)
     cfg = load_config(args.config)
     hub = DataHub(cfg)
     idx = hub.index_daily(cfg["data"]["parent_index_code"])
     cal = TradingCalendar(idx["date"])
-    md, docx = build(cfg, hub, cal)
-    print(md)
-    print(docx)
+    out = build(cfg, hub, cal, latex=args.latex)
+    for k, v in out.items():
+        print(f"{k}: {v}")
     return 0
 
 

@@ -36,7 +36,7 @@ def main() -> int:
         cfg = load_config(args.config)
         hub = DataHub(cfg)
         cal = TradingCalendar(hub.index_daily(cfg["data"]["parent_index_code"])["date"])
-        build(cfg, hub, cal)
+        build(cfg, hub, cal, latex=True)
     return 0
 
 

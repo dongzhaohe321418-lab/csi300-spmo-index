@@ -169,13 +169,23 @@ def collect(cfg: dict, hub: DataHub, cal: TradingCalendar) -> dict:
     return ctx
 
 
-def build(cfg: dict, hub: DataHub, cal: TradingCalendar) -> tuple[Path, Path]:
+def build(cfg: dict, hub: DataHub, cal: TradingCalendar, latex: bool = True) -> dict[str, Path | None]:
+    """Markdown + DOCX always; LaTeX source always when `latex`; PDF when a TeX engine is available
+    (tectonic or latexmk; set TECTONIC_BUNDLE to pass `-b <bundle>` to tectonic)."""
+    import os
+
     from .docx_export import markdown_to_docx
+    from .research_latex import compile_pdf, write_latex
     from .research_text import write_markdown
 
     ctx = collect(cfg, hub, cal)
     rep_dir = abs_path(cfg, cfg["output"]["report_dir"])
-    md = write_markdown(ctx, rep_dir / "research_report_zh.md")
-    docx = markdown_to_docx(md, rep_dir / "research_report_zh.docx", title="沪深300 S&P Financial Viability + SPMO 动量指数研究报告")
-    log.info("research report written: %s, %s", md, docx)
-    return md, docx
+    out: dict[str, Path | None] = {}
+    out["md"] = write_markdown(ctx, rep_dir / "research_report_zh.md")
+    out["docx"] = markdown_to_docx(out["md"], rep_dir / "research_report_zh.docx", title="沪深300 S&P Financial Viability + SPMO 动量指数研究报告")
+    if latex:
+        out["tex"] = write_latex(ctx, rep_dir / "research_report_zh.tex")
+        extra = ["-b", os.environ["TECTONIC_BUNDLE"]] if os.environ.get("TECTONIC_BUNDLE") else None
+        out["pdf"] = compile_pdf(out["tex"], extra_args=extra)
+    log.info("research report written: %s", {k: str(v) for k, v in out.items()})
+    return out
