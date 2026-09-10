@@ -347,3 +347,40 @@ def design_space_chart(grid: pd.DataFrame, phase: pd.DataFrame, disp: pd.DataFra
     ax2.legend(loc="lower right")
     fig.suptitle("设计差异小于日历噪声：能稳健改善的不是更集中或更快，而是把调仓时点分批", x=0.01, ha="left", fontsize=SIZES[0])
     return _save(fig, path)
+
+
+def evidence_chart(sig: pd.DataFrame, overlay: pd.DataFrame, a_curve: pd.Series, vt_curve: pd.Series, burn, path: Path) -> Path:
+    """Left: bootstrap intervals for every comparison — all straddle zero. Right: what the
+    volatility overlay actually changes (drawdown), which needs no significance test."""
+    _style()
+    fig, axes = plt.subplots(1, 2, figsize=(12.6, 5.0), gridspec_kw={"width_ratios": [1.25, 1], "wspace": 0.24})
+    ax = axes[0]
+    d = sig.iloc[::-1].reset_index(drop=True)
+    y = np.arange(len(d))
+    ax.axvline(0, color=C["grey"], lw=1.0, zorder=1)
+    for yi, (lo, hi, pt) in enumerate(zip(d["区间下(pp)"], d["区间上(pp)"], d["年化差(pp)"])):
+        col = C["strategy"] if lo > 0 or hi < 0 else C["bench"]
+        ax.plot([lo, hi], [yi, yi], color=col, lw=2.4, alpha=0.55, solid_capstyle="round", zorder=2)
+        ax.plot([pt], [yi], "o", color=col, ms=6, zorder=3)
+    ax.set_yticks(y)
+    ax.set_yticklabels(d["比较"], fontsize=SIZES[2])
+    ax.set_xlabel("年化收益之差（百分点）")
+    ax.set_title("每一项比较的 95% 自助法区间都跨过零：\n21 年 A 股样本无法区分这些设计")
+    ax.grid(axis="y", visible=False)
+    for yi, t in enumerate(d["t(NW)"]):
+        ax.annotate(f"t={t:.2f}", (max(d["区间上(pp)"]) * 1.02, yi), fontsize=SIZES[2], color="#555555", va="center")
+    ax.set_xlim(min(d["区间下(pp)"]) * 1.1, max(d["区间上(pp)"]) * 1.25)
+    ax2 = axes[1]
+    a = a_curve.loc[burn:]
+    v = vt_curve.loc[burn:]
+    for lv, lab, col in ((a / a.iloc[0] * 100, "A 本指数", C["strategy"]), (v / v.iloc[0] * 100, "A + 波动率目标（无前视）", C["blue"])):
+        dd = (lv / lv.cummax() - 1) * 100
+        ax2.plot(dd.index, dd, color=col, lw=1.0, label=f"{lab}（最深 {dd.min():.0f}%）")
+    ax2.set_ylabel("回撤（%）")
+    ax2.legend(loc="lower right")
+    ax2.xaxis.set_major_locator(mdates.YearLocator(3))
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    ax2.margins(x=0.01)
+    n_better = int((overlay.iloc[1:]["Sharpe"] > overlay.iloc[0]["Sharpe"]).sum())
+    ax2.set_title(f"波动率目标改变的是风险，不需要显著性检验：\n9 组参数中 {n_better} 组的 Sharpe 与最大回撤同时改善")
+    return _save(fig, path)

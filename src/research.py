@@ -396,6 +396,9 @@ def score_cache(cfg: dict, cal: TradingCalendar, intervals: pd.DataFrame, panel:
         mom = compute_momentum(panel["adj_close_pr"], panel["ret_pr"], panel["traded"], ref, cal, codes=members,
                                lookback_months=mcfg["lookback_months"], skip_months=mcfg["skip_months"],
                                min_traded_days=mcfg["min_traded_days"])
+        mom6 = compute_momentum(panel["adj_close_pr"], panel["ret_pr"], panel["traded"], ref, cal, codes=members,
+                                lookback_months=6, skip_months=mcfg["skip_months"], min_traded_days=90)
+        mom = mom.merge(mom6[["code", "RAM"]].rename(columns={"RAM": "RAM_6"}), on="code", how="left")
         df = pd.DataFrame({"code": members}).merge(fin, on="code", how="left").merge(mom, on="code", how="left")
         df["momentum_eligible"] = df["momentum_eligible"].fillna(False).astype(bool)
         df["financial_eligible"] = df["financial_eligible"].fillna(False).astype(bool)
@@ -408,7 +411,7 @@ def score_cache(cfg: dict, cal: TradingCalendar, intervals: pd.DataFrame, panel:
 
 def variant_rebalances(cfg: dict, cache: dict, intervals: pd.DataFrame, schedule: list[tuple], data_end: pd.Timestamp,
                        top_fraction: float | None = 0.20, top_n: int | None = None, weighting: str = "fmc_score_cap",
-                       use_fv: bool = True, buffer: bool = True) -> list:
+                       use_fv: bool = True, buffer: bool = True, signal: str = "12-1") -> list:
     """Build Rebalance objects for one design variant. Parent membership always has priority."""
     from .selection import select_constituents
     from .universe import members_at as _members_at
@@ -423,6 +426,13 @@ def variant_rebalances(cfg: dict, cache: dict, intervals: pd.DataFrame, schedule
         df["eligible"] = df["momentum_eligible"] & df["fmc"].notna() & (df["fmc"] > 0)
         if use_fv:
             df["eligible"] &= df["financial_eligible"]
+        if signal == "blend":      # average of the standardised 12-1 and 6-1 signals (re-standardised downstream)
+            from .selection import zscore
+
+            m = df["eligible"] & df["RAM_6"].notna()
+            df.loc[~m, "eligible"] = False
+            if int(m.sum()) >= 5:
+                df.loc[m, "RAM"] = 0.5 * (zscore(df.loc[m, "RAM"].astype(float)) + zscore(df.loc[m, "RAM_6"].astype(float))).values
         n_elig = int(df["eligible"].sum())
         if n_elig < 5:
             continue
@@ -497,7 +507,7 @@ def design_grid(cfg: dict, cal: TradingCalendar, intervals: pd.DataFrame, panel:
         rebs = variant_rebalances(cfg, cache, intervals, scheds[(v.get("freq", "semiannual"), v.get("lag", "third_friday"), v.get("phase", 2))], data_end,
                                   top_fraction=v.get("top_fraction", 0.20), top_n=v.get("top_n"),
                                   weighting=v.get("weighting", "fmc_score_cap"), use_fv=v.get("use_fv", True),
-                                  buffer=v.get("buffer", True))
+                                  buffer=v.get("buffer", True), signal=v.get("signal", "12-1"))
         raw[v["name"]] = run_variant(cfg, engine, rebs)
     # compare on the window common to every variant (an immediate-implementation variant starts
     # ~3 weeks earlier than the index convention)
@@ -594,4 +604,93 @@ def design_study(cfg: dict, cal: TradingCalendar, intervals: pd.DataFrame, panel
         "tranched_turnover": float(phase["Turnover_pa"].mean()),
         "design_min": float(grid["CAGR_net"].min()), "design_max": float(grid["CAGR_net"].max()),
     }
-    return {"grid": grid, "phase": phase, "dispersion": disp, "tranched": tr, "curves": curves, "summary": summary}
+    # --- is any of this distinguishable from noise, and is there something better? -------------
+    A_curve = curves[DESIGN_VARIANTS[0]["name"]]
+    burn = A_curve.pct_change().dropna().index[504]          # 2y burn-in for an out-of-sample vol target
+    vt = vol_scaled(A_curve, target_vol="expanding", window=126, max_exposure=1.0)
+    over = []
+    for tv_, lab in (("expanding", "扩展窗口（无前视）"), (None, "全样本波动（含前视）"), (0.25, "固定 25%")):
+        for win in (63, 126, 252):
+            o = vol_scaled(A_curve, target_vol=tv_, window=win, max_exposure=1.0)
+            x = o["levels"].loc[burn:]
+            x = x / x.iloc[0] * 100
+            over.append({"目标波动": lab, "估计窗口": win, "CAGR": M.cagr(x), "波动": M.ann_vol(x), "Sharpe": M.sharpe(x),
+                         "最大回撤": M.max_drawdown(x)["max_drawdown"], "平均仓位": float(o["exposure"].loc[burn:].mean()),
+                         "叠加换手/年": o["stats"]["overlay_turnover_pa"]})
+    base_clip = A_curve.loc[burn:] / A_curve.loc[burn:].iloc[0] * 100
+    overlay = pd.DataFrame([{"目标波动": "无（基准 A）", "估计窗口": np.nan, "CAGR": M.cagr(base_clip), "波动": M.ann_vol(base_clip),
+                             "Sharpe": M.sharpe(base_clip), "最大回撤": M.max_drawdown(base_clip)["max_drawdown"],
+                             "平均仓位": 1.0, "叠加换手/年": 0.0}] + over)
+    pairs = [("A 本指数 − 沪深300全收益", A_curve, benchmark.reindex(A_curve.index).ffill().dropna(), None),
+             ("H2 HSMO 端点（参考日实施） − A", curves["H2 H1 + 参考日实施"], A_curve, None),
+             ("H1 HSMO 端点（三周后实施） − A", curves["H1 20只+季度+等权+无FV/缓冲"], A_curve, None),
+             ("B1 成分数 top10% − A", curves["B1 成分数 top10%"], A_curve, None),
+             ("C 季度调仓 − A", curves["C 频率 季度"], A_curve, None),
+             ("D1 等权 − A", curves["D1 加权 等权"], A_curve, None),
+             ("E 去掉财务资格筛选 − A", curves["E 无财务资格筛选"], A_curve, None),
+             ("分批 6 批 − A", tr, A_curve, None),
+             ("波动率目标（扩展窗口，126 日） − A", vt["levels"], A_curve, burn)]
+    sig = []
+    for lab, a_, b_, st_ in pairs:
+        a2, b2 = (a_.loc[st_:], b_.loc[st_:]) if st_ is not None else (a_, b_)
+        r_ = block_bootstrap_diff(a2, b2)
+        sig.append({"比较": lab, "年化差(pp)": 100 * r_["ann_diff"], "区间下(pp)": 100 * r_["ci_low"],
+                    "区间上(pp)": 100 * r_["ci_high"], "t(NW)": r_["t_newey_west"], "P(差>0)": r_["p_positive"],
+                    "月数": r_["n_months"]})
+    summary["te"] = M.tracking_error(A_curve, benchmark.reindex(A_curve.index).ffill().dropna())
+    summary["se_excess"] = summary["te"] / np.sqrt(M.years_between(A_curve.index[0], A_curve.index[-1]))
+    summary["burn_start"] = str(burn.date())
+    return {"grid": grid, "phase": phase, "dispersion": disp, "tranched": tr, "curves": curves, "summary": summary,
+            "significance": pd.DataFrame(sig), "overlay": overlay, "vol_target": vt, "A_curve": A_curve, "burn": burn}
+
+
+# --------------------------------------------------------------------------- #
+# 6. how much of any of this is distinguishable from noise?
+# --------------------------------------------------------------------------- #
+def block_bootstrap_diff(a: pd.Series, b: pd.Series, block: int = 12, n_boot: int = 2000, seed: int = 0) -> dict:
+    """Moving-block bootstrap on the monthly return difference of two level series.
+    Returns the annualised mean difference, its 95% interval and a Newey-West t-statistic."""
+    ra, rb = M.monthly_returns(a), M.monthly_returns(b)
+    idx = ra.index.intersection(rb.index)
+    d = (ra.reindex(idx) - rb.reindex(idx)).dropna().values
+    n = len(d)
+    rng = np.random.default_rng(seed)
+    nblocks = int(np.ceil(n / block))
+    starts = rng.integers(0, n - block + 1, size=(n_boot, nblocks))
+    means = np.empty(n_boot)
+    for i in range(n_boot):
+        sample = np.concatenate([d[s:s + block] for s in starts[i]])[:n]
+        means[i] = sample.mean()
+    ann = lambda m: (1 + m) ** 12 - 1                                   # noqa: E731
+    lags = int(np.floor(4 * (n / 100) ** (2 / 9)))
+    dm = d - d.mean()
+    gamma0 = float((dm ** 2).mean())
+    var_nw = gamma0 + 2 * sum((1 - k / (lags + 1)) * float((dm[k:] * dm[:-k]).mean()) for k in range(1, lags + 1))
+    t_nw = d.mean() / np.sqrt(max(var_nw, 1e-18) / n)
+    return {"ann_diff": ann(d.mean()), "ci_low": ann(np.percentile(means, 2.5)), "ci_high": ann(np.percentile(means, 97.5)),
+            "t_newey_west": float(t_nw), "n_months": n, "p_positive": float((means > 0).mean())}
+
+
+def vol_scaled(level: pd.Series, target_vol: float | None = None, window: int = 126, max_exposure: float = 1.0,
+               cash_rate: float = 0.02, cost_per_unit: float = 0.0015) -> dict:
+    """Constant-volatility overlay (Barroso and Santa-Clara 2015): scale exposure by
+    target_vol / realised vol of the strategy itself, estimated on the previous `window` days
+    (strictly lagged). Un-invested capital earns `cash_rate`; changing exposure costs
+    `cost_per_unit` of the traded fraction."""
+    r = level.pct_change().dropna()
+    rv = r.rolling(window).std().shift(1) * np.sqrt(252)
+    if target_vol == "expanding":       # no look-ahead: target = realised vol of the strategy so far
+        tv = (r.expanding(504).std() * np.sqrt(252)).shift(1)
+    else:
+        tv = float(r.std() * np.sqrt(252)) if target_vol is None else float(target_vol)
+    e = (tv / rv).clip(upper=max_exposure).fillna(0.0)
+    e = e.where(rv.notna(), 0.0)
+    turn = e.diff().abs().fillna(e.abs())
+    rp = e * r + (1 - e) * (cash_rate / 252) - turn * cost_per_unit
+    lv = (1 + rp).cumprod() * 100.0
+    lv.loc[r.index[0] - pd.Timedelta(days=1)] = 100.0
+    lv = lv.sort_index()
+    return {"levels": lv, "exposure": e, "target_vol": (float(np.nanmean(tv)) if not np.isscalar(tv) else tv),
+            "stats": {"CAGR": M.cagr(lv), "Vol": M.ann_vol(lv), "Sharpe": M.sharpe(lv),
+                      "MaxDD": M.max_drawdown(lv)["max_drawdown"], "avg_exposure": float(e.mean()),
+                      "overlay_turnover_pa": float(turn.sum() / M.years_between(lv.index[0], lv.index[-1]))}}

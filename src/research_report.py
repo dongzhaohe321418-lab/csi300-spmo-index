@@ -147,6 +147,8 @@ def collect(cfg: dict, hub: DataHub, cal: TradingCalendar, design: bool = True) 
         d["grid"].to_csv(research_dir / "design_variants.csv", index=False, float_format="%.6f", encoding="utf-8-sig")
         d["phase"].to_csv(research_dir / "calendar_phase_variants.csv", index=False, float_format="%.6f", encoding="utf-8-sig")
         d["dispersion"].to_csv(research_dir / "tranching_dispersion.csv", index=False, float_format="%.6f", encoding="utf-8-sig")
+        d["significance"].to_csv(research_dir / "significance_tests.csv", index=False, float_format="%.6f", encoding="utf-8-sig")
+        d["overlay"].to_csv(research_dir / "vol_target_overlay.csv", index=False, float_format="%.6f", encoding="utf-8-sig")
         d["tranched"].rename("tranched_index_rules").to_csv(research_dir / "tranched_levels.csv", float_format="%.6f")
 
     # figures
@@ -165,6 +167,8 @@ def collect(cfg: dict, hub: DataHub, cal: TradingCalendar, design: bool = True) 
     if design:
         ctx["fig"]["design"] = RC.design_space_chart(ctx["design"]["grid"], ctx["design"]["phase"], ctx["design"]["dispersion"],
                                                      ctx["design"]["summary"]["bench_cagr"], charts / "rr_design_space.png")
+        ctx["fig"]["evidence"] = RC.evidence_chart(ctx["design"]["significance"], ctx["design"]["overlay"], ctx["design"]["A_curve"],
+                                                   ctx["design"]["vol_target"]["levels"], ctx["design"]["burn"], charts / "rr_evidence.png")
 
     main_charts = abs_path(cfg, cfg["output"]["charts_dir"])
     for k, f in (("fig_growth", "growth_of_100.png"), ("fig_growth_log", "growth_of_100_log.png"), ("fig_candles", "candlestick_comparison.png"),

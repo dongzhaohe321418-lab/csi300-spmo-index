@@ -578,6 +578,46 @@ def write_latex(ctx: dict, path: Path) -> Path:  # noqa: C901 - one long, linear
           f"平均最大回撤由 {pct(float(dd_['最大回撤'].iloc[0]), 1)} 改善到 {pct(float(dd_['最大回撤'].iloc[3]), 1)}。分批后的组合年化 {pct(ds['tranched_cagr'], 1)}，"
           f"相对沪深300全收益超额 {pct(ds['tranched_cagr'] - ds['bench_cagr'], 1, True)}——这是对该规则超额收益更诚实的估计。")
         A(figure(rel(fig["design"]), "左：逐维度设计变体的费后年化收益，灰带为同一规则在 6 种调仓相位下的区间；右：分批数与结果离散度", "fig:design"))
+        A(r"\subsection{这些差异有多少是真的？自助法区间}")
+        sg = d["significance"]
+        st_ = pd.DataFrame({"比较": sg["比较"].map(esc), "年化差（pp）": sg["年化差(pp)"].map(lambda v: f"{v:+.2f}".replace("-", "$-$")),
+                            "95\% 区间（pp）": [f"[{a:+.2f}, {b:+.2f}]".replace("-", "$-$") for a, b in zip(sg["区间下(pp)"], sg["区间上(pp)"])],
+                            "$t$（Newey--West）": sg["t(NW)"].map(lambda v: f"{v:.2f}".replace("-", "$-$")),
+                            "$P(\Delta>0)$": sg["P(差>0)"].map(lambda v: f"{v:.2f}"), "月数": sg["月数"].astype(int).astype(str)})
+        A(table(st_, "月度收益差的移动分块自助法（分块 12 个月，2000 次重抽样）与 Newey--West $t$ 统计量", "tab:sig",
+                colspec=r"@{}lrrrrr@{}", escape=False, header_escape=False, size=r"\footnotesize", fit=True))
+        A(f"跟踪误差 {pct(ds['te'], 1)}、样本长度 {M.years_between(lv.index[0], lv.index[-1]):.0f} 年，意味着年化超额收益的标准误约 "
+          f"{100 * ds['se_excess']:.1f} 个百分点。表 \\ref{{tab:sig}} 证实了这一点：\\textbf{{所有比较的 95\\% 区间都跨过零}}——"
+          f"包括本指数相对沪深300全收益本身（{sg['年化差(pp)'].iloc[0]:+.2f} pp，区间 [{sg['区间下(pp)'].iloc[0]:+.2f}, {sg['区间上(pp)'].iloc[0]:+.2f}]，"
+          f"$t={sg['t(NW)'].iloc[0]:.2f}$）。因此“哪一种设计更好”在本样本上不是一个可以回答的问题；只有那些\\emph{{不依赖收益差}}的性质"
+          f"（换手、集中度、回撤、结果离散度）才是可以判断的。区间最窄的两项是去掉财务筛选（{sg['区间下(pp)'].iloc[6]:+.2f} 到 {sg['区间上(pp)'].iloc[6]:+.2f} pp，"
+          f"$P(\\text{{差}}>0)={sg['P(差>0)'].iloc[6]:.2f}$，即九成的重抽样认为去掉它有害）和波动率目标（见下）。".replace("%", r"\%").replace(r"\\%", r"\%"))
+        A(r"\subsection{还有没有更好的？波动率目标}")
+        ov = d["overlay"]
+        ot = pd.DataFrame({"目标波动": ov["目标波动"].map(esc), "估计窗口": ov["估计窗口"].map(lambda v: "—" if pd.isna(v) else f"{v:.0f} 日"),
+                           "年化": ov["CAGR"].map(lambda v: pct(v, 2)), "波动": ov["波动"].map(lambda v: pct(v, 1)),
+                           "Sharpe": ov["Sharpe"].map(lambda v: f"{v:.3f}"), "最大回撤": ov["最大回撤"].map(lambda v: pct(v, 1)),
+                           "平均仓位": ov["平均仓位"].map(lambda v: pct(v, 0)), "叠加换手/年": ov["叠加换手/年"].map(lambda v: pct(v, 0))})
+        A(table(ot, "波动率目标叠加：仓位 $=\\min(1,\\ \\sigma^{\\ast}/\\hat\\sigma_{t-1})$，空仓部分按 2\\% 计息，仓位变动按 15\\,bp 计费；"
+                     f"全部自 {esc(ds['burn_start'])} 起（扣除 2 年估计期）", "tab:overlay", colspec=r"@{}llrrrrrr@{}", escape=False,
+                header_escape=False, size=r"\footnotesize", fit=True))
+        base = ov.iloc[0]
+        best = ov.iloc[1:].loc[ov.iloc[1:]["Sharpe"].idxmax()]
+        exp126 = ov[(ov["目标波动"] == "扩展窗口（无前视）") & (ov["估计窗口"] == 126)].iloc[0]
+        nb = int((ov.iloc[1:]["Sharpe"] > base["Sharpe"]).sum())
+        A(f"分批解决的是运气，不是风险。文献中对动量策略最稳健的一项改造是\\textbf{{按自身波动率调节仓位}}"
+          f"（\\citealp{{barroso2015}}；\\citealp{{daniel2016}}）：动量组合的波动率高度可预测，而其崩塌集中在高波动期。"
+          f"把这一叠加用在本指数上（仓位上限 100\\%，即只降杠杆不加杠杆，空仓部分计息，仓位变动计费）：{len(ov) - 1} 组参数中有 {nb} 组的 Sharpe "
+          f"同时优于基准，最大回撤在\\emph{{全部}} {len(ov) - 1} 组中都从 {pct(base['最大回撤'], 1)} 改善到 {pct(ov.iloc[1:]['最大回撤'].max(), 1)} 以内。"
+          f"其中唯一完全不含前视的设定（目标 = 迄今为止实现波动的扩展窗口估计，126 日估计窗口）年化 {pct(exp126['CAGR'], 2)}（基准 {pct(base['CAGR'], 2)}），"
+          f"波动 {pct(exp126['波动'], 1)}（基准 {pct(base['波动'], 1)}），Sharpe {exp126['Sharpe']:.3f}（基准 {base['Sharpe']:.3f}），"
+          f"最大回撤 {pct(exp126['最大回撤'], 1)}（基准 {pct(base['最大回撤'], 1)}），平均仓位 {pct(exp126['平均仓位'], 0)}，叠加换手 {pct(exp126['叠加换手/年'], 0)}/年。"
+          f"收益上的改进依然不显著（表 \\ref{{tab:sig}} 末行，$t={sg['t(NW)'].iloc[-1]:.2f}$），但\\textbf{{风险上的改进是机械的}}："
+          f"它不依赖动量是否继续有效，只依赖波动率的可预测性——后者在所有 {len(ov) - 1} 组参数上都成立（图 \\ref{{fig:evidence}}）。")
+        A(figure(rel(fig["evidence"]), "左：各项比较的自助法 95\\% 区间；右：波动率目标叠加前后的回撤", "fig:evidence"))
+        A(r"这项改造的代价必须一并说明：它把指数变成一只\emph{仓位可变}的产品（需要现金账户，且不再是一条可被跟踪的纯指数），"
+          r"叠加换手每年 11\%--95\%（视估计窗口而定），在急速反弹的初期会因仓位偏低而落后，且以上结论只覆盖 2008 年以后的样本。")
+
         A(r"\subsection{结论：折中方案是什么}")
         A(r"把上面的证据合起来，两套规则之间\textbf{沿“更集中 / 更高频”方向的中间点没有可靠的优势}——那一维度上的差异在日历噪声之内，"
           r"而代价（波动、回撤、换手、容量）是确定的。真正值得采纳的折中是：")
@@ -585,7 +625,10 @@ def write_latex(ctx: dict, path: Path) -> Path:  # noqa: C901 - one long, linear
         A(f"\\item \\textbf{{保留本指数的宽度、财务资格筛选、缓冲与权重上限。}}这些选择要么带来稳定的收益（筛选 "
           f"{100 * (base_c - float(dg.loc[dg['variant'].str.startswith('E'), 'CAGR_net'].iloc[0])):.2f} 个百分点），要么在收益相同的情况下降低波动、回撤与换手（宽度）。")
         A(r"\item \textbf{把调仓时点分成 2--3 批。}换手率与成本不变，消除掉一半到三分之二的日历运气，平均 Sharpe 与最大回撤同时小幅改善。"
-          r"这是本节唯一推荐的改动，且理由是事前的（分散一个无信息的选择），不依赖样本内表现。")
+          r"理由是事前的（分散一个无信息的选择），不依赖样本内表现。")
+        A(f"\\item \\textbf{{若产品允许仓位可变，波动率目标是效果最大的一项改造。}}最大回撤由 {pct(float(d['overlay']['最大回撤'].iloc[0]), 1)} 改善到 "
+          f"{pct(float(d['overlay']['最大回撤'].iloc[2]), 1)}（无前视设定），9 组参数中 9 组的 Sharpe 与回撤同时改善；收益上的改进不显著，"
+          f"但风险上的改进不依赖动量是否继续有效。代价是它不再是一条可跟踪的纯指数。")
         A(r"\item \textbf{不要为 1--2 个百分点的样本内年化收益去调整成分数、频率或加权方案。}本节的证据表明这个量级低于噪声；"
           r"按它调参得到的将是拟合结果，而不是改进。")
         A(r"\end{enumerate}")
@@ -598,7 +641,10 @@ def write_latex(ctx: dict, path: Path) -> Path:  # noqa: C901 - one long, linear
       f"Sharpe 由 {g('Sharpe_Ratio', B):.2f} 升至 {g('Sharpe_Ratio', S):.2f}，但波动与最大回撤更大，超额收益集中在 2017--2020 年，月度超额在统计上不显著。超额几乎全部来自选股而非 SPMO 式加权；"
       f"本文的自由流通代理对国有大盘股的高配使报告的业绩偏保守。相同数据上，更集中、更高频的 Top-20 等权季度动量收益更高，但换手约两倍、集中度更高，其行业中性规则依赖当前分类而在历史上不可靠。"
       + (f"第 \\ref{{sec:robust}} 节进一步表明，两种设计之间的差距小于“在哪个月调仓”这一无信息选择造成的差异（同一规则、6 个相位：{pct(ctx['design']['summary']['phase_min'], 1)}--{pct(ctx['design']['summary']['phase_max'], 1)}）；"
-         f"已报告超额中约 {100 * (ctx['design']['summary']['published_cagr'] - ctx['design']['summary']['phase_mean']):.1f} 个百分点应归于日历运气，而唯一可事前论证的改进是把调仓时点分成 2--3 批。" if ctx.get("design") else "")
+         f"已报告超额中约 {100 * (ctx['design']['summary']['published_cagr'] - ctx['design']['summary']['phase_mean']):.1f} 个百分点应归于日历运气。"
+         f"所有比较的自助法 95\\% 区间都跨过零（包括本指数相对沪深300本身），因此“哪种设计更好”在本样本上不可判定；能够判断的只有不依赖收益差的性质："
+         f"把调仓时点分成 2--3 批可零成本消除日历运气，按自身波动率调节仓位可把最大回撤由 {pct(float(ctx['design']['overlay']['最大回撤'].iloc[0]), 0)} 降到 "
+         f"{pct(float(ctx['design']['overlay']['最大回撤'].iloc[2]), 0)}（9 组参数一致），代价是不再是纯指数。" if ctx.get("design") else "")
       + f"研究任务书要求回答的 17 个问题逐条如下。")
     ann_s = ann.set_index("Date"); strong = ann_s[S].nlargest(3); weak = ann_s[S].nsmallest(3); bestex = ann_s["Excess"].nlargest(3); worstex = ann_s["Excess"].nsmallest(3)
     jj = lambda ser: "、".join(f"{y} 年（{pct(v, 1, True)}）" for y, v in ser.items())  # noqa: E731

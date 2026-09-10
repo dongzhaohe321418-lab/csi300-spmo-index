@@ -251,7 +251,9 @@ GitHub project [HSI300-Momentum-Strategy](https://github.com/dongzhaohe321418-la
 for its own 2019–2025 window and for 2005–2026), plus a design-space robustness study (§9 of the
 PDF): every design axis that separates the two projects varied one at a time, the same rules run
 under all six rebalance-month phases (which spread net CAGR by ~4.7 pp — more than any design
-change), and tranching as the one improvement that can be argued ex ante. The analytics live in `src/research.py`
+change), block-bootstrap intervals for every comparison (all straddle zero), and the two changes that do not
+rely on a return difference: tranching (zero cost, removes the calendar luck) and a volatility-target
+overlay (max drawdown −66% → −56% out-of-sample, Sharpe up in 9/9 parameter settings). The analytics live in `src/research.py`
 (diagnostic only — the strategy itself is untouched), figures in `src/research_charts.py`, the
 Markdown text in `src/research_text.py`, the LaTeX paper in `src/research_latex.py`; the supporting
 tables are written to `output/research/`.
