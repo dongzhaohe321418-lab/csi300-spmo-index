@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -351,3 +351,247 @@ def hsmo_replication(panel: dict, intervals: pd.DataFrame, start, end=None, top_
     lv = pd.Series(curve, index=dates, name="HSMO_replication")
     to = pd.DataFrame(turnover, columns=["date", "two_way_turnover", "cost"]).set_index("date")
     return {"levels": lv, "turnover": to, "holdings": holdings, "n_rebalances": len(to)}
+
+
+# --------------------------------------------------------------------------- #
+# 5. design-space sensitivity: one axis at a time between this index and a
+#    concentrated top-N equal-weight portfolio (HSMO-style).
+#    DIAGNOSTIC ONLY — the published index keeps the fixed rules of config.yaml.
+# --------------------------------------------------------------------------- #
+QUARTERLY = ((2, 3), (5, 6), (8, 9), (11, 12))
+SEMIANNUAL = ((2, 3), (8, 9))
+
+
+def variant_schedule(cal: TradingCalendar, cfg: dict, data_end: pd.Timestamp, months=SEMIANNUAL,
+                     lag: str = "third_friday") -> list[tuple]:
+    """(reference, implementation) pairs. `lag`: "third_friday" = the index convention (month-end
+    reference, third Friday of the following month, ~3 weeks of pre-announcement); "immediate" =
+    trade at the reference-date close (what an unannounced portfolio can do)."""
+    first_ref = pd.Timestamp(cfg["rebalance"]["first_reference_date"])
+    out = []
+    for y in range(first_ref.year, data_end.year + 1):
+        for m_ref, m_eff in months:
+            ref = cal.month_end(y, m_ref)
+            if ref < first_ref or ref > data_end:
+                continue
+            yy = y + 1 if m_eff < m_ref else y          # December reference -> January implementation
+            out.append((ref, ref if lag == "immediate" else cal.third_friday(yy, m_eff)))
+    return sorted(out)
+
+
+def score_cache(cfg: dict, cal: TradingCalendar, intervals: pd.DataFrame, panel: dict, qtabs: dict,
+                refs: Iterable[pd.Timestamp]) -> dict:
+    """Per-reference-date eligibility / momentum / market-cap frame, shared by all design variants
+    (identical to the production scoring step; only selection and weighting differ downstream)."""
+    from .financials import viability_table
+    from .momentum import compute_momentum
+    from .universe import members_at as _members_at
+
+    fv, mcfg = cfg["financial_viability"], cfg["momentum"]
+    cache = {}
+    for ref in refs:
+        members = sorted(_members_at(intervals, ref))
+        fin = viability_table(qtabs, members, ref, require_latest_positive=fv["require_latest_quarter_positive"],
+                              require_4q_positive=fv["require_trailing_4q_sum_positive"])
+        mom = compute_momentum(panel["adj_close_pr"], panel["ret_pr"], panel["traded"], ref, cal, codes=members,
+                               lookback_months=mcfg["lookback_months"], skip_months=mcfg["skip_months"],
+                               min_traded_days=mcfg["min_traded_days"])
+        df = pd.DataFrame({"code": members}).merge(fin, on="code", how="left").merge(mom, on="code", how="left")
+        df["momentum_eligible"] = df["momentum_eligible"].fillna(False).astype(bool)
+        df["financial_eligible"] = df["financial_eligible"].fillna(False).astype(bool)
+        fmc = panel["fmc"].loc[ref].reindex(members)
+        df["fmc"] = fmc.values
+        df["csi300_weight"] = (fmc / fmc.dropna().sum()).values
+        cache[ref] = df
+    return cache
+
+
+def variant_rebalances(cfg: dict, cache: dict, intervals: pd.DataFrame, schedule: list[tuple], data_end: pd.Timestamp,
+                       top_fraction: float | None = 0.20, top_n: int | None = None, weighting: str = "fmc_score_cap",
+                       use_fv: bool = True, buffer: bool = True) -> list:
+    """Build Rebalance objects for one design variant. Parent membership always has priority."""
+    from .selection import select_constituents
+    from .universe import members_at as _members_at
+    from .weighting import compute_weights
+
+    scfg, wcfg = cfg["selection"], cfg["weighting"]
+    auto_frac = scfg["buffer"]["auto_select_fraction"] if buffer else 1.0
+    retain_frac = scfg["buffer"]["retain_fraction"] if buffer else 1.0
+    rebs, current = [], set()
+    for ref, eff in schedule:
+        df = cache[ref].copy()
+        df["eligible"] = df["momentum_eligible"] & df["fmc"].notna() & (df["fmc"] > 0)
+        if use_fv:
+            df["eligible"] &= df["financial_eligible"]
+        n_elig = int(df["eligible"].sum())
+        if n_elig < 5:
+            continue
+        frac = (top_n / n_elig) if top_n else top_fraction
+        sel = select_constituents(df, current, top_fraction=frac, auto_frac=auto_frac, retain_frac=retain_frac,
+                                  rounding=scfg["rounding"])
+        chosen = sel[sel["selected"]].copy()
+        if weighting == "equal":
+            chosen["final_weight"] = 1.0 / len(chosen)
+        else:
+            w_in = chosen.copy()
+            if weighting == "fmc_cap":
+                w_in["momentum_score"] = 1.0
+            elif weighting == "sqrt_fmc_score_cap":
+                w_in["fmc"] = np.sqrt(w_in["fmc"].astype(float))
+            elif weighting != "fmc_score_cap":
+                raise ValueError(weighting)
+            chosen["final_weight"] = compute_weights(w_in, cap_absolute=wcfg["cap_absolute"],
+                                                     cap_multiple=wcfg["cap_multiple_of_parent_weight"],
+                                                     max_iter=wcfg["max_cap_iterations"])["final_weight"].values
+        mem_eff = _members_at(intervals, eff) if eff <= data_end else set(df["code"])
+        keep = chosen[chosen["code"].isin(mem_eff)].copy()
+        if keep.empty:
+            continue
+        w = pd.Series(keep["final_weight"].values, index=keep["code"].values)
+        w = w / w.sum()
+        current = set(w.index)
+        rebs.append(Rebalance(ref, eff, w, {"n": len(w)}))
+    return rebs
+
+
+def run_variant(cfg: dict, engine: IndexEngine, rebs: list, basis: str = "tr", base: float = 100.0) -> dict:
+    res = engine.run(rebs, basis=basis, base_level=base)
+    lev = res["levels"]
+    to = res["turnover"]["one_way_turnover"].iloc[1:]
+    years = M.years_between(lev.index[0], lev.index[-1])
+    n_per_year = len(to) / years
+    ns = [len(r.weights) for r in rebs]
+    eff_n = [1.0 / float((r.weights ** 2).sum()) for r in rebs]
+    return {"levels": lev["Close"], "levels_net": lev["Net_Close"], "turnover": to,
+            "stats": {"CAGR_gross": M.cagr(lev["Close"]), "CAGR_net": M.cagr(lev["Net_Close"]),
+                      "Vol": M.ann_vol(lev["Net_Close"]), "Sharpe": M.sharpe(lev["Net_Close"]),
+                      "MaxDD": M.max_drawdown(lev["Net_Close"])["max_drawdown"],
+                      "Turnover_pa": float(to.mean() * n_per_year), "N": float(np.mean(ns)), "EffN": float(np.mean(eff_n)),
+                      "Rebalances": len(rebs), "Final_net": float(lev["Net_Close"].iloc[-1])}}
+
+
+def design_grid(cfg: dict, cal: TradingCalendar, intervals: pd.DataFrame, panel: dict, qtabs: dict,
+                variants: list[dict], split: str = "2016-01-01") -> tuple[pd.DataFrame, dict]:
+    """Run a list of design variants on identical point-in-time data. Each variant dict:
+    {name, top_fraction|top_n, freq: 'semiannual'|'quarterly', weighting, use_fv, buffer}."""
+    data_end = panel["adj_close_pr"].index[-1]
+    def months_for(freq: str, phase: int) -> tuple:
+        step = 6 if freq == "semiannual" else 3
+        return tuple(((phase + k * step - 1) % 12 + 1, (phase + k * step) % 12 + 1) for k in range(12 // step))
+
+    scheds = {}
+    for v in variants:
+        key = (v.get("freq", "semiannual"), v.get("lag", "third_friday"), v.get("phase", 2))
+        if key not in scheds:
+            scheds[key] = variant_schedule(cal, cfg, data_end, months_for(key[0], key[2]), key[1])
+    refs = sorted({r for sch in scheds.values() for r, _ in sch})
+    cache = score_cache(cfg, cal, intervals, panel, qtabs, refs)
+    # engine on a forward-filled copy: some variants can hold a security that is suspended until it is
+    # delisted (no price at all); the index rule carries such holdings at their last close
+    panel_ff = dict(panel)
+    for k in ("adj_close_pr", "adj_open_pr", "adj_high_pr", "adj_low_pr", "adj_close_tr", "close"):
+        panel_ff[k] = panel[k].ffill()
+    engine = IndexEngine(panel_ff, cal, intervals, cfg)
+    rows, curves, raw = [], {}, {}
+    for v in variants:
+        rebs = variant_rebalances(cfg, cache, intervals, scheds[(v.get("freq", "semiannual"), v.get("lag", "third_friday"), v.get("phase", 2))], data_end,
+                                  top_fraction=v.get("top_fraction", 0.20), top_n=v.get("top_n"),
+                                  weighting=v.get("weighting", "fmc_score_cap"), use_fv=v.get("use_fv", True),
+                                  buffer=v.get("buffer", True))
+        raw[v["name"]] = run_variant(cfg, engine, rebs)
+    # compare on the window common to every variant (an immediate-implementation variant starts
+    # ~3 weeks earlier than the index convention)
+    t_start = max(o["levels_net"].index[0] for o in raw.values())
+    for name, out in raw.items():
+        lv = out["levels_net"].loc[t_start:]
+        lv = lv / lv.iloc[0] * 100.0
+        curves[name] = lv
+        st = out["stats"]
+        s = {"variant": name, "group": next(v.get("group", "") for v in variants if v["name"] == name), "CAGR_net": M.cagr(lv), "CAGR_gross": M.cagr(out["levels"].loc[t_start:]),
+             "Vol": M.ann_vol(lv), "Sharpe": M.sharpe(lv), "MaxDD": M.max_drawdown(lv)["max_drawdown"],
+             "Turnover_pa": st["Turnover_pa"], "N": st["N"], "EffN": st["EffN"], "Rebalances": st["Rebalances"],
+             "Final_net": float(lv.iloc[-1])}
+        for label, sub in (("first_half", lv.loc[:split]), ("second_half", lv.loc[split:])):
+            s[f"CAGR_net_{label}"] = M.cagr(sub)
+        rows.append(s)
+        log.info("variant %-46s CAGR_net %.2f%% vol %.1f%% MDD %.0f%% turnover %.0f%%/yr N %.0f",
+                 name, 100 * s["CAGR_net"], 100 * s["Vol"], 100 * s["MaxDD"], 100 * s["Turnover_pa"], s["N"])
+    return pd.DataFrame(rows), curves
+
+
+def tranche_curve(curves: dict, keys) -> pd.Series:
+    """Equal-capital combination of sub-portfolios that follow the same rules on staggered
+    rebalance months (Jegadeesh-Titman overlapping portfolios). Turnover per unit of capital is
+    unchanged; only the arbitrary choice of rebalance month is diversified away."""
+    rets = pd.DataFrame({k: curves[k].pct_change() for k in keys}).dropna()
+    lv = (1 + rets.mean(axis=1)).cumprod() * 100.0
+    lv.loc[rets.index[0] - pd.Timedelta(days=1)] = 100.0
+    return lv.sort_index()
+
+
+def tranching_dispersion(curves: dict, keys, ks=(1, 2, 3, 6), split: str = "2016-01-01") -> pd.DataFrame:
+    """Outcome dispersion when k of the staggered sub-portfolios are combined (all k-subsets)."""
+    from itertools import combinations
+
+    keys = list(keys)
+    rets = pd.DataFrame({k: curves[k].pct_change() for k in keys}).dropna()
+    rows = []
+    for k in ks:
+        stats = []
+        for cmb in combinations(keys, k):
+            lv = (1 + rets[list(cmb)].mean(axis=1)).cumprod() * 100.0
+            stats.append((M.cagr(lv), M.ann_vol(lv), M.sharpe(lv), M.max_drawdown(lv)["max_drawdown"]))
+        cg = np.array([s[0] for s in stats])
+        rows.append({"分批数": k, "组合数": len(stats), "CAGR 均值": cg.mean(), "CAGR 最低": cg.min(), "CAGR 最高": cg.max(),
+                     "极差(pp)": 100 * (cg.max() - cg.min()), "标准差(pp)": 100 * cg.std(),
+                     "波动": np.mean([s[1] for s in stats]), "Sharpe": np.mean([s[2] for s in stats]),
+                     "最大回撤": np.mean([s[3] for s in stats])})
+    return pd.DataFrame(rows)
+
+
+DESIGN_VARIANTS = [
+    {"group": "基准", "name": "A 本指数：top20%，半年，FMC×Score+上限，FV，缓冲，三周后实施"},
+    {"group": "成分数", "name": "B1 成分数 top10%", "top_fraction": 0.10},
+    {"group": "成分数", "name": "B2 成分数 top5%", "top_fraction": 0.05},
+    {"group": "成分数", "name": "B3 成分数 固定20只", "top_n": 20},
+    {"group": "频率", "name": "C 频率 季度", "freq": "quarterly"},
+    {"group": "加权", "name": "D1 加权 等权", "weighting": "equal"},
+    {"group": "加权", "name": "D2 加权 仅FMC", "weighting": "fmc_cap"},
+    {"group": "加权", "name": "D3 加权 √FMC×Score", "weighting": "sqrt_fmc_score_cap"},
+    {"group": "筛选", "name": "E 无财务资格筛选", "use_fv": False},
+    {"group": "筛选", "name": "F 无缓冲", "buffer": False},
+    {"group": "实施时点", "name": "L 参考日收盘实施（无三周延迟）", "lag": "immediate"},
+    {"group": "折中", "name": "G1 top10%+季度", "top_fraction": 0.10, "freq": "quarterly"},
+    {"group": "折中", "name": "G2 季度+参考日实施", "freq": "quarterly", "lag": "immediate"},
+    {"group": "折中", "name": "G3 top10%+季度+参考日实施", "top_fraction": 0.10, "freq": "quarterly", "lag": "immediate"},
+    {"group": "折中", "name": "G4 top10%+季度+参考日实施+√FMC×Score", "top_fraction": 0.10, "freq": "quarterly", "lag": "immediate",
+     "weighting": "sqrt_fmc_score_cap"},
+    {"group": "HSMO 端点", "name": "H1 20只+季度+等权+无FV/缓冲", "top_n": 20, "freq": "quarterly", "weighting": "equal",
+     "use_fv": False, "buffer": False},
+    {"group": "HSMO 端点", "name": "H2 H1 + 参考日实施", "top_n": 20, "freq": "quarterly", "weighting": "equal",
+     "use_fv": False, "buffer": False, "lag": "immediate"},
+]
+PHASE_VARIANTS = [{"group": "日历相位", "name": f"T{p} 本指数规则，参考月 {p}/{p + 6 if p <= 6 else p - 6}", "phase": p} for p in range(1, 7)]
+
+
+def design_study(cfg: dict, cal: TradingCalendar, intervals: pd.DataFrame, panel: dict, qtabs: dict,
+                 benchmark: pd.Series) -> dict:
+    """Design-space sensitivity + calendar-phase robustness + tranching (diagnostic only)."""
+    gr, curves = design_grid(cfg, cal, intervals, panel, qtabs, DESIGN_VARIANTS + PHASE_VARIANTS)
+    phase_names = [v["name"] for v in PHASE_VARIANTS]
+    grid = gr[~gr["variant"].isin(phase_names)].reset_index(drop=True)
+    phase = gr[gr["variant"].isin(phase_names)].reset_index(drop=True)
+    disp = tranching_dispersion(curves, phase_names)
+    tr = tranche_curve(curves, phase_names)
+    bench = benchmark.reindex(tr.index).ffill().dropna()
+    bench = bench / bench.iloc[0] * 100
+    published = curves[phase_names[1]]           # T2 = the published Feb/Aug phase
+    summary = {
+        "bench_cagr": M.cagr(bench), "published_cagr": M.cagr(published), "phase_mean": float(phase["CAGR_net"].mean()),
+        "phase_min": float(phase["CAGR_net"].min()), "phase_max": float(phase["CAGR_net"].max()),
+        "phase_std": float(phase["CAGR_net"].std()), "tranched_cagr": M.cagr(tr), "tranched_vol": M.ann_vol(tr),
+        "tranched_sharpe": M.sharpe(tr), "tranched_mdd": M.max_drawdown(tr)["max_drawdown"],
+        "tranched_turnover": float(phase["Turnover_pa"].mean()),
+        "design_min": float(grid["CAGR_net"].min()), "design_max": float(grid["CAGR_net"].max()),
+    }
+    return {"grid": grid, "phase": phase, "dispersion": disp, "tranched": tr, "curves": curves, "summary": summary}

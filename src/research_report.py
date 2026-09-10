@@ -58,7 +58,7 @@ def _fmt_pct_cols(df: pd.DataFrame, cols, d=2, sign=False) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- collection
-def collect(cfg: dict, hub: DataHub, cal: TradingCalendar) -> dict:
+def collect(cfg: dict, hub: DataHub, cal: TradingCalendar, design: bool = True) -> dict:
     t0 = time.time()
     perf = abs_path(cfg, cfg["output"]["performance_dir"])
     processed = hub.processed
@@ -137,6 +137,18 @@ def collect(cfg: dict, hub: DataHub, cal: TradingCalendar) -> dict:
     ctx["hsmo"] = hs
     ctx["hsmo_levels"] = {k: v["levels"] for k, v in hs.items()}
 
+    # design-space sensitivity / calendar-phase robustness / tranching (diagnostic; the index is unchanged)
+    if design:
+        from .backtest import load_quarterlies
+
+        qtabs = load_quarterlies(hub, sorted(set(intervals["code"])), cfg["financial_viability"]["field_priority"])
+        ctx["design"] = R.design_study(cfg, cal, intervals, panel, qtabs, levels["CSI300_TR"])
+        d = ctx["design"]
+        d["grid"].to_csv(research_dir / "design_variants.csv", index=False, float_format="%.6f", encoding="utf-8-sig")
+        d["phase"].to_csv(research_dir / "calendar_phase_variants.csv", index=False, float_format="%.6f", encoding="utf-8-sig")
+        d["dispersion"].to_csv(research_dir / "tranching_dispersion.csv", index=False, float_format="%.6f", encoding="utf-8-sig")
+        d["tranched"].rename("tranched_index_rules").to_csv(research_dir / "tranched_levels.csv", float_format="%.6f")
+
     # figures
     ctx["fig"] = {
         "attr": RC.attribution_chart(levels, attr, charts / "rr_attribution.png"),
@@ -150,6 +162,9 @@ def collect(cfg: dict, hub: DataHub, cal: TradingCalendar) -> dict:
         "hsmo": RC.hsmo_chart(levels, ctx["hsmo_levels"], charts / "rr_hsmo_comparison.png"),
         "dd": RC.drawdown_compare_chart(levels, hs["full_nocap"]["levels"], charts / "rr_drawdown_comparison.png"),
     }
+    if design:
+        ctx["fig"]["design"] = RC.design_space_chart(ctx["design"]["grid"], ctx["design"]["phase"], ctx["design"]["dispersion"],
+                                                     ctx["design"]["summary"]["bench_cagr"], charts / "rr_design_space.png")
 
     main_charts = abs_path(cfg, cfg["output"]["charts_dir"])
     for k, f in (("fig_growth", "growth_of_100.png"), ("fig_growth_log", "growth_of_100_log.png"), ("fig_candles", "candlestick_comparison.png"),
@@ -169,7 +184,7 @@ def collect(cfg: dict, hub: DataHub, cal: TradingCalendar) -> dict:
     return ctx
 
 
-def build(cfg: dict, hub: DataHub, cal: TradingCalendar, latex: bool = True) -> dict[str, Path | None]:
+def build(cfg: dict, hub: DataHub, cal: TradingCalendar, latex: bool = True, design: bool = True) -> dict[str, Path | None]:
     """Markdown + DOCX always; LaTeX source always when `latex`; PDF when a TeX engine is available
     (tectonic or latexmk; set TECTONIC_BUNDLE to pass `-b <bundle>` to tectonic)."""
     import os
@@ -178,7 +193,7 @@ def build(cfg: dict, hub: DataHub, cal: TradingCalendar, latex: bool = True) -> 
     from .research_latex import compile_pdf, write_latex
     from .research_text import write_markdown
 
-    ctx = collect(cfg, hub, cal)
+    ctx = collect(cfg, hub, cal, design=design)
     rep_dir = abs_path(cfg, cfg["output"]["report_dir"])
     out: dict[str, Path | None] = {}
     out["md"] = write_markdown(ctx, rep_dir / "research_report_zh.md")

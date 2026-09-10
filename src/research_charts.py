@@ -305,3 +305,45 @@ def drawdown_compare_chart(levels: pd.DataFrame, hsmo_full: pd.Series, path: Pat
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     ax.margins(x=0.01)
     return _save(fig, path)
+
+
+def design_space_chart(grid: pd.DataFrame, phase: pd.DataFrame, disp: pd.DataFrame, bench_cagr: float, path: Path) -> Path:
+    """Left: net CAGR of every design variant against the band spanned by the same rules under
+    different (arbitrary) rebalance-month phases. Right: how tranching shrinks that band."""
+    _style()
+    fig, axes = plt.subplots(1, 2, figsize=(12.6, 5.4), gridspec_kw={"width_ratios": [1.75, 1], "wspace": 0.26})
+    ax = axes[0]
+    g = grid.iloc[::-1].reset_index(drop=True)
+    y = np.arange(len(g))
+    lo, hi = phase["CAGR_net"].min(), phase["CAGR_net"].max()
+    ax.axvspan(lo * 100, hi * 100, color=C["light"], alpha=0.45, zorder=0)
+    ax.axvline(bench_cagr * 100, color=C["bench"], lw=1.0, ls="--", zorder=1)
+    base = float(grid["CAGR_net"].iloc[0])
+    colors = [C["strategy"] if i == len(g) - 1 else (C["blue"] if v >= base else C["grey"]) for i, v in enumerate(g["CAGR_net"])]
+    ax.scatter(g["CAGR_net"] * 100, y, s=46, color=colors, zorder=3)
+    for yi, (v, t) in enumerate(zip(g["CAGR_net"], g["Turnover_pa"])):
+        ax.annotate(f"{v * 100:.1f}%  (换手 {t * 100:.0f}%/年)", (v * 100, yi), xytext=(7, 0), textcoords="offset points",
+                    va="center", fontsize=SIZES[2], color="#333333")
+    ax.set_yticks(y)
+    ax.set_yticklabels([n.split("（")[0] for n in g["variant"]], fontsize=SIZES[2])
+    ax.set_xlabel("费后年化收益（全收益口径，%）")
+    ax.set_xlim(min(lo * 100, g["CAGR_net"].min() * 100) - 0.6, max(hi, g["CAGR_net"].max()) * 100 + 3.4)
+    ax.grid(axis="y", visible=False)
+    ax.set_title("设计维度逐项变动：全部落在同一规则因“调仓月份”不同而产生的区间（灰带）之内")
+    ax.annotate(f"同一规则、6 个调仓相位：{lo * 100:.1f}%–{hi * 100:.1f}%", (hi * 100, len(g) - 0.4), xytext=(4, 0),
+                textcoords="offset points", fontsize=SIZES[2], color="#555555", va="center")
+    ax.annotate(f"沪深300全收益 {bench_cagr * 100:.1f}%", (bench_cagr * 100, -0.7), xytext=(3, 0), textcoords="offset points",
+                fontsize=SIZES[2], color=C["bench"], va="center")
+    ax2 = axes[1]
+    x = disp["分批数"].values
+    ax2.vlines(x, disp["CAGR 最低"] * 100, disp["CAGR 最高"] * 100, color=C["blue"], lw=8, alpha=0.35)
+    ax2.plot(x, disp["CAGR 均值"] * 100, "o-", color=C["strategy"], lw=1.4, ms=5, label="平均")
+    for xi, lo_, hi_, rg in zip(x, disp["CAGR 最低"], disp["CAGR 最高"], disp["极差(pp)"]):
+        ax2.annotate(f"极差 {rg:.1f} pp", (xi, hi_ * 100), xytext=(0, 6), textcoords="offset points", ha="center", fontsize=SIZES[2], color="#555555")
+    ax2.set_xticks(x)
+    ax2.set_xlabel("分批数（同一规则、错开调仓月份的子组合数）")
+    ax2.set_ylabel("费后年化收益（%）")
+    ax2.set_title("分批消除“调仓月份”这一运气来源\n（换手率不变）")
+    ax2.legend(loc="lower right")
+    fig.suptitle("设计差异小于日历噪声：能稳健改善的不是更集中或更快，而是把调仓时点分批", x=0.01, ha="left", fontsize=SIZES[0])
+    return _save(fig, path)

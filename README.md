@@ -248,7 +248,10 @@ persistence, sector exposure), a selection-vs-weighting attribution built with t
 engine, cost analysis, the answers to the 17 questions, and a like-for-like comparison with the
 GitHub project [HSI300-Momentum-Strategy](https://github.com/dongzhaohe321418-lab/HSI300-Momentum-Strategy)
 (its Top-20 equal-weight quarterly rules re-implemented on this project's point-in-time data, both
-for its own 2019–2025 window and for 2005–2026). The analytics live in `src/research.py`
+for its own 2019–2025 window and for 2005–2026), plus a design-space robustness study (§9 of the
+PDF): every design axis that separates the two projects varied one at a time, the same rules run
+under all six rebalance-month phases (which spread net CAGR by ~4.7 pp — more than any design
+change), and tranching as the one improvement that can be argued ex ante. The analytics live in `src/research.py`
 (diagnostic only — the strategy itself is untouched), figures in `src/research_charts.py`, the
 Markdown text in `src/research_text.py`, the LaTeX paper in `src/research_latex.py`; the supporting
 tables are written to `output/research/`.

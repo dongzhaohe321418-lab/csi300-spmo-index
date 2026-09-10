@@ -115,6 +115,7 @@ PREAMBLE = r"""\documentclass[11pt,a4paper]{article}
 \setlist{nosep,leftmargin=1.6em}
 \usepackage{fancyhdr}
 \usepackage[round,authoryear]{natbib}
+\setcitestyle{aysep={}}
 \usepackage[colorlinks,linkcolor={blue!50!black},citecolor={green!40!black},urlcolor={blue!60!black}]{hyperref}
 \renewcommand{\abstractname}{摘\quad 要}
 \renewcommand{\figurename}{图}
@@ -226,7 +227,7 @@ def write_latex(ctx: dict, path: Path) -> Path:  # noqa: C901 - one long, linear
       r"(ii) 用交易所除权除息参考价自建复权序列并逐事件校验；(iii) 识别并修正免费财务数据源中 2010 年以前公告日期系统性滞后的问题；(iv) 用同一指数引擎做\emph{选股 vs 加权}的归因，并用权重代理复制母指数来量化代理误差；"
       r"(v) 在完全相同的数据上复现另一公开动量策略的规则，使两种设计取向的比较不受数据差异干扰。")
     A(r"下文结构：第 \ref{sec:method} 节给出指数编制方法与同 S\&P 官方方法的差异；第 \ref{sec:data} 节说明数据来源、点位重建与数据质量检验；第 \ref{sec:results} 节报告回测结果；第 \ref{sec:portfolio} 节分析组合特征；"
-      r"第 \ref{sec:attribution} 节做收益来源分解；第 \ref{sec:cost} 节讨论交易成本；第 \ref{sec:hsmo} 节与 HSI300-Momentum-Strategy 比较；第 \ref{sec:conclusion} 节总结并逐条回答研究任务书中的 17 个问题。")
+      r"第 \ref{sec:attribution} 节做收益来源分解；第 \ref{sec:cost} 节讨论交易成本；第 \ref{sec:hsmo} 节与 HSI300-Momentum-Strategy 比较；第 \ref{sec:robust} 节把两者的设计差异逐维度拆开，检验是否存在更好的折中；第 \ref{sec:conclusion} 节总结并逐条回答研究任务书中的 17 个问题。")
 
     # ------------------------------------------------------------------ 2 methodology
     A(r"\section{指数构建方法}\label{sec:method}")
@@ -527,11 +528,78 @@ def write_latex(ctx: dict, path: Path) -> Path:  # noqa: C901 - one long, linear
       r"且其点位数据（月末快照、当前行业分类）与成本假设（15\,bp）在 2005--2008 年的制度环境下偏乐观。本文是\textbf{可指数化的规则}：更宽的成分、市值倾斜的权重、缓冲和上限带来更低的换手和更接近母指数的风险特征（$\beta\approx 1$、跟踪误差约 10\%），"
       r"代价是对趋势反转反应更慢（2021 年、2024 年 9 月）。两者在同一数据上都长期战胜沪深300，也都在 2008、2011、2015--2016 年经历长时间跑输——\textbf{动量在 A 股大盘股中的有效性是周期性的}，任何以 2019 年以后样本为依据的收益预期都需要打折。")
 
+
+    # ------------------------------------------------------------------ 9 robustness / design space
+    if ctx.get("design"):
+        d = ctx["design"]; ds = d["summary"]; dg = d["grid"]; dp = d["phase"]; dd_ = d["dispersion"]
+        A(r"\section{设计空间的稳健性与“折中”方案}\label{sec:robust}")
+        A(f"第 \\ref{{sec:hsmo}} 节的两套规则在多个维度上同时不同。本节把这些维度\\textbf{{逐项}}拆开：从本指数出发，每次只改一个设计选择，"
+          f"其余全部保持不变（同一套点位数据、同一指数引擎、同一历史成本模型、同一公共区间、全收益费后口径），最后回答“中间地带是否存在更好的设计”。"
+          f"\\textbf{{本节是诊断性分析：已发布指数的规则不因此改变，配置文件中的参数也没有按结果调整。}}")
+        A(r"\subsection{逐维度敏感性}")
+        gt = pd.DataFrame({"维度": dg["group"].map(esc), "变体": dg["variant"].map(esc), "年化（费后）": dg["CAGR_net"].map(lambda v: pct(v, 1)),
+                           "波动": dg["Vol"].map(lambda v: pct(v, 1)), "最大回撤": dg["MaxDD"].map(lambda v: pct(v, 1)),
+                           "单边换手/年": dg["Turnover_pa"].map(lambda v: pct(v, 0)), "成分数": dg["N"].map(lambda v: f"{v:.0f}"),
+                           "有效成分数": dg["EffN"].map(lambda v: f"{v:.0f}"),
+                           "前半段": dg["CAGR_net_first_half"].map(lambda v: pct(v, 1)), "后半段": dg["CAGR_net_second_half"].map(lambda v: pct(v, 1))})
+        A(table(gt, "设计维度逐项变动（全收益、费后；前半段 = 2016 年之前，后半段 = 2016 年之后）", "tab:design",
+                colspec=r"@{}llrrrrrrrr@{}", escape=False, size=r"\footnotesize", fit=True))
+        base_c = float(dg["CAGR_net"].iloc[0])
+        A(f"全部 {len(dg)} 个变体的费后年化收益落在 {pct(ds['design_min'], 1)}--{pct(ds['design_max'], 1)} 之间，基准（本指数）为 {pct(base_c, 1)}。"
+          f"可以直接读出四条结论：(i) \\textbf{{更集中并不更好}}——把成分数压到 10\\%、5\\% 或固定 20 只，收益不升反降，而波动、回撤和换手全部上升；"
+          f"(ii) \\textbf{{加权方案几乎不影响长期收益}}——等权、纯市值、$\\sqrt{{\\FMC}}\\times$Score 与本指数相差不到 0.1 个百分点，"
+          f"区别只在前后两段的分布（等权前半段更强、后半段更弱）；(iii) \\textbf{{财务资格筛选值得保留}}——去掉后年化下降 "
+          f"{100 * (base_c - float(dg.loc[dg['variant'].str.startswith('E'), 'CAGR_net'].iloc[0])):.2f} 个百分点，且前后两段一致；"
+          f"(iv) \\textbf{{把三周的实施延迟去掉、改在参考日收盘交易，单独看是有害的}}（{pct(float(dg.loc[dg['variant'].str.startswith('L'), 'CAGR_net'].iloc[0]), 1)}），"
+          f"只有与季度调仓、高集中度组合在一起时才转为有利——这本身就说明这些差异不是稳定的结构性效应。")
+        A(r"\subsection{同一规则、不同调仓月份：设计差异小于日历噪声}")
+        A(f"上述差异是否值得据以改变设计？一个直接的检验是：\\textbf{{保持规则完全不变，只把参考月份整体平移}}。本指数用 2 月 / 8 月，"
+          f"这一选择来自 S\\&P 的日程惯例，没有任何经济含义。把它换成其余 5 种半年相位，同样的规则给出的费后年化收益是 "
+          f"{pct(ds['phase_min'], 1)}--{pct(ds['phase_max'], 1)}（标准差 {100 * ds['phase_std']:.1f} 个百分点，极差 "
+          f"{100 * (ds['phase_max'] - ds['phase_min']):.1f} 个百分点），\\textbf{{比上一小节全部设计变体之间的差距还要大}}（图 \\ref{{fig:design}} 左）。"
+          f"换言之，在 21 年样本上，1--2 个百分点的年化差异不足以区分两种设计的优劣。")
+        A(f"这一结果同样适用于本文自己的指数：已发布的 2 月 / 8 月相位年化 {pct(ds['published_cagr'], 1)}，而六个相位的平均为 {pct(ds['phase_mean'], 1)}；"
+          f"相对沪深300全收益（{pct(ds['bench_cagr'], 1)}）的超额由 {pct(ds['published_cagr'] - ds['bench_cagr'], 1, True)} 降到 "
+          f"{pct(ds['phase_mean'] - ds['bench_cagr'], 1, True)}。也就是说，\\textbf{{已报告超额收益中约 "
+          f"{100 * (ds['published_cagr'] - ds['phase_mean']):.1f} 个百分点来自调仓月份的运气}}，而非规则本身。这一点在第 \\ref{{sec:results}} 节的结论中必须一并考虑。")
+        A(r"\subsection{可以稳健改善的一件事：分批调仓}")
+        dt = pd.DataFrame({"分批数": dd_["分批数"].astype(int).astype(str), "可能组合数": dd_["组合数"].astype(int).astype(str),
+                           "年化均值": dd_["CAGR 均值"].map(lambda v: pct(v, 1)), "最低": dd_["CAGR 最低"].map(lambda v: pct(v, 1)),
+                           "最高": dd_["CAGR 最高"].map(lambda v: pct(v, 1)), "极差（pp）": dd_["极差(pp)"].map(lambda v: f"{v:.1f}"),
+                           "标准差（pp）": dd_["标准差(pp)"].map(lambda v: f"{v:.2f}"), "波动": dd_["波动"].map(lambda v: pct(v, 1)),
+                           "Sharpe": dd_["Sharpe"].map(lambda v: f"{v:.3f}"), "最大回撤": dd_["最大回撤"].map(lambda v: pct(v, 1))})
+        A(table(dt, "把同一套规则拆成 $k$ 个错开调仓月份的子组合（每个子组合占 $1/k$ 资金，单位资金的换手率不变）", "tab:tranche",
+                colspec=r"@{}llrrrrrrrr@{}", escape=False, size=r"\footnotesize", fit=True))
+        A(f"既然“哪个月调仓”是纯粹的运气来源，就应当把它\\textbf{{分散掉}}，而不是去挑一个幸运的月份：把资金分成 $k$ 份、各自遵循同样的规则但错开调仓月份"
+          f"（动量文献中的重叠组合，\\citealp{{jegadeesh1993}}）。这是唯一一个\\emph{{事前}}就能论证、无需回测支持的改进：单位资金的换手率不变，"
+          f"因而成本不变，但结果对日历选择的依赖被消除。$k=2$ 已经把极差从 {dd_['极差(pp)'].iloc[0]:.1f} 个百分点压到 {dd_['极差(pp)'].iloc[1]:.1f}，"
+          f"$k=3$ 压到 {dd_['极差(pp)'].iloc[2]:.1f}，$k=6$（逐月错开）为零（图 \\ref{{fig:design}} 右）；同时平均波动由 {pct(float(dd_['波动'].iloc[0]), 1)} 降至 "
+          f"{pct(float(dd_['波动'].iloc[3]), 1)}，平均 Sharpe 由 {float(dd_['Sharpe'].iloc[0]):.3f} 升至 {float(dd_['Sharpe'].iloc[3]):.3f}，"
+          f"平均最大回撤由 {pct(float(dd_['最大回撤'].iloc[0]), 1)} 改善到 {pct(float(dd_['最大回撤'].iloc[3]), 1)}。分批后的组合年化 {pct(ds['tranched_cagr'], 1)}，"
+          f"相对沪深300全收益超额 {pct(ds['tranched_cagr'] - ds['bench_cagr'], 1, True)}——这是对该规则超额收益更诚实的估计。")
+        A(figure(rel(fig["design"]), "左：逐维度设计变体的费后年化收益，灰带为同一规则在 6 种调仓相位下的区间；右：分批数与结果离散度", "fig:design"))
+        A(r"\subsection{结论：折中方案是什么}")
+        A(r"把上面的证据合起来，两套规则之间\textbf{沿“更集中 / 更高频”方向的中间点没有可靠的优势}——那一维度上的差异在日历噪声之内，"
+          r"而代价（波动、回撤、换手、容量）是确定的。真正值得采纳的折中是：")
+        A(r"\begin{enumerate}[leftmargin=2em,itemsep=2pt]")
+        A(f"\\item \\textbf{{保留本指数的宽度、财务资格筛选、缓冲与权重上限。}}这些选择要么带来稳定的收益（筛选 "
+          f"{100 * (base_c - float(dg.loc[dg['variant'].str.startswith('E'), 'CAGR_net'].iloc[0])):.2f} 个百分点），要么在收益相同的情况下降低波动、回撤与换手（宽度）。")
+        A(r"\item \textbf{把调仓时点分成 2--3 批。}换手率与成本不变，消除掉一半到三分之二的日历运气，平均 Sharpe 与最大回撤同时小幅改善。"
+          r"这是本节唯一推荐的改动，且理由是事前的（分散一个无信息的选择），不依赖样本内表现。")
+        A(r"\item \textbf{不要为 1--2 个百分点的样本内年化收益去调整成分数、频率或加权方案。}本节的证据表明这个量级低于噪声；"
+          r"按它调参得到的将是拟合结果，而不是改进。")
+        A(r"\end{enumerate}")
+        A(r"需要说明的是，分批实施改变的是\emph{组合的运作方式}而非指数定义：作为一只公开指数，本文的 CSI300\_SP\_FV\_SPMO 仍按 S\&P 的"
+          r"半年、提前公告的日程编制；分批属于跟踪该规则的\emph{产品}层面的实现选择。")
+
     # ------------------------------------------------------------------ 9 conclusion & 17 answers
     A(r"\section{结论}\label{sec:conclusion}")
     A(f"把 S\\&P 500 Momentum 的规则平移到沪深300并叠加 Financial Viability 盈利资格，在 2005--2026 年得到一条\\textbf{{长期期望为正、但需要忍受多年跑输}}的规则：年化收益由 {pct(cagr_b)} 提高到 {pct(cagr_s)}（费后 {pct(cagr_sn)}），"
       f"Sharpe 由 {g('Sharpe_Ratio', B):.2f} 升至 {g('Sharpe_Ratio', S):.2f}，但波动与最大回撤更大，超额收益集中在 2017--2020 年，月度超额在统计上不显著。超额几乎全部来自选股而非 SPMO 式加权；"
-      f"本文的自由流通代理对国有大盘股的高配使报告的业绩偏保守。相同数据上，更集中、更高频的 Top-20 等权季度动量收益更高，但换手约两倍、集中度更高，其行业中性规则依赖当前分类而在历史上不可靠。研究任务书要求回答的 17 个问题逐条如下。")
+      f"本文的自由流通代理对国有大盘股的高配使报告的业绩偏保守。相同数据上，更集中、更高频的 Top-20 等权季度动量收益更高，但换手约两倍、集中度更高，其行业中性规则依赖当前分类而在历史上不可靠。"
+      + (f"第 \\ref{{sec:robust}} 节进一步表明，两种设计之间的差距小于“在哪个月调仓”这一无信息选择造成的差异（同一规则、6 个相位：{pct(ctx['design']['summary']['phase_min'], 1)}--{pct(ctx['design']['summary']['phase_max'], 1)}）；"
+         f"已报告超额中约 {100 * (ctx['design']['summary']['published_cagr'] - ctx['design']['summary']['phase_mean']):.1f} 个百分点应归于日历运气，而唯一可事前论证的改进是把调仓时点分成 2--3 批。" if ctx.get("design") else "")
+      + f"研究任务书要求回答的 17 个问题逐条如下。")
     ann_s = ann.set_index("Date"); strong = ann_s[S].nlargest(3); weak = ann_s[S].nsmallest(3); bestex = ann_s["Excess"].nlargest(3); worstex = ann_s["Excess"].nsmallest(3)
     jj = lambda ser: "、".join(f"{y} 年（{pct(v, 1, True)}）" for y, v in ser.items())  # noqa: E731
     ans = [
@@ -554,6 +622,9 @@ def write_latex(ctx: dict, path: Path) -> Path:  # noqa: C901 - one long, linear
         ("Financial Viability + SPMO 是否显著改善沪深300的长期复利与风险调整收益",
          f"长期复利有实质改善（年化 {pct(cagr_b)} → {pct(cagr_s)}，费后 {pct(cagr_sn)}；{years:.0f} 年终值高 {(g('Final_Value_of_100', S) / g('Final_Value_of_100', B) - 1) * 100:.0f}\\%），"
          f"风险调整收益温和改善（Sharpe {g('Sharpe_Ratio', B):.2f} → {g('Sharpe_Ratio', S):.2f}，Sortino {g('Sortino_Ratio', B):.2f} → {g('Sortino_Ratio', S):.2f}，信息比率 {g('Information_Ratio', S):.2f}），"
+         f"但波动和最大回撤更大、超额收益集中在少数年份且统计上不显著；把调仓月份的相位差异计入后，超额的中枢估计还要再降约 "
+         f"{100 * (ctx['design']['summary']['published_cagr'] - ctx['design']['summary']['phase_mean']):.1f} 个百分点（第 \\ref{{sec:robust}} 节）。"
+         f"结论：\\textbf{{有改善，但不能称为“显著”}}。".replace("→", "$\\rightarrow$") if ctx.get("design") else
          f"但波动和最大回撤更大、超额收益集中在少数年份且统计上不显著。结论：\\textbf{{有改善，但不能称为“显著”}}。".replace("→", "$\\rightarrow$")),
     ]
     A(r"\begin{enumerate}[leftmargin=2em,itemsep=2pt]")
